@@ -3,7 +3,7 @@
 from django.conf import settings
 from django.conf.urls import include, url
 
-from ecommerce.extensions.payment.views import PaymentFailedView, cybersource, paypal, stripe
+from ecommerce.extensions.payment.views import PaymentFailedView, cybersource, paypal, stripe, webpay
 from ecommerce.extensions.payment.views.sdn import SDNCheckFailureView, SDNCheckView, SDNFailure
 
 CYBERSOURCE_APPLE_PAY_URLS = [
@@ -31,12 +31,18 @@ STRIPE_URLS = [
     url(r'^checkout', stripe.StripeCheckoutView.as_view(), name='checkout'),
 ]
 
+WEBPAY_URLS = [
+    url(r'^execute/', webpay.WebpayPaymentNotificationView.as_view(), name='execute'),
+    url(r'^return/(?P<order_number>.+)/$', webpay.WebpaySuccessfulView.as_view(), name='return'),
+]
+
 urlpatterns = [
     url(r'^cybersource/', include((CYBERSOURCE_URLS, 'cybersource'))),
     url(r'^error/$', PaymentFailedView.as_view(), name='payment_error'),
     url(r'^paypal/', include((PAYPAL_URLS, 'paypal'))),
     url(r'^sdn/', include((SDN_URLS, 'sdn'))),
     url(r'^stripe/', include((STRIPE_URLS, 'stripe'))),
+    url(r'^webpay/', include((WEBPAY_URLS, 'webpay'))), 
 ]
 
 for payment_processor_name, urls_module in settings.EXTRA_PAYMENT_PROCESSOR_URLS.items():
