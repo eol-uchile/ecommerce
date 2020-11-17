@@ -50,7 +50,7 @@ class WebpayPaymentNotificationView(EdxOrderPlacementMixin, View):
         """
         Retrieve a basket using a payment ID.
         Arguments:
-            payment_id: payment_id received from Khipu.
+            payment_id: payment_id received from Webpay.
         Returns:
             It will return related basket or log exception and return None if
             duplicate payment_id received or any other exception occurred.
@@ -66,14 +66,14 @@ class WebpayPaymentNotificationView(EdxOrderPlacementMixin, View):
             basket_add_organization_attribute(basket, self.request.GET)
             return basket
         except MultipleObjectsReturned:
-            logger.warning("Duplicate payment ID [%s] received from Khipu.", payment_id)
+            logger.warning("Duplicate payment ID [%s] received from Webpay.", payment_id)
             return None
         except Exception:  # pylint: disable=broad-except
-            logger.exception("Unexpected error during basket retrieval while executing Khipu payment.")
+            logger.exception("Unexpected error during basket retrieval while executing Webpay payment.")
             return None
 
     def post(self, request):
-        """Handle a notification received by Khipu with status update of a transaction"""
+        """Handle a notification received by Webpay with status update of a transaction"""
         token = request.POST.get("token_ws")
         logger.info("Payment token [%s] update received by Webpay", token)
 
@@ -101,7 +101,7 @@ class WebpayPaymentNotificationView(EdxOrderPlacementMixin, View):
                 except PaymentError:
                     return redirect(self.payment_processor.error_url)
                 except WebpayAlreadyProcessed:
-                    # Return 400, telling khipu that the transaction was already processed
+                    # Return 400, telling Webpay that the transaction was already processed
                     raise HttpResponseBadRequest()
                 except WebpayTransactionDeclined:
                     # Cancel the basket, as the transaction was declined

@@ -40,7 +40,7 @@ class Webpay(BasePaymentProcessor):
 
     def __init__(self, site):
         """
-        Construct a new instance of the khipu processor.
+        Construct a new instance of the Webpay processor.
         """
         super(Webpay, self).__init__(site)
 
@@ -73,7 +73,12 @@ class Webpay(BasePaymentProcessor):
             "order_number": basket.order_number,
             "total_incl_tax": basket.total_incl_tax,
             "api_secret": self.configuration["api_secret"]
-        }).json()
+        })
+
+        if result.status_code == 403 or result.status_code == 500:
+            raise GatewayError("Webpay module has failed")
+
+        result = result.json()
 
         if result['token'] is None or result['token'] == '':
             msg = 'Webpay payment for basket [%d] declined'
@@ -93,7 +98,7 @@ class Webpay(BasePaymentProcessor):
 
     def handle_processor_response(self, response, basket):
         """
-        Handle Khipu notification, completing the transaction if the parameters are correct.
+        Handle Webpay notification, completing the transaction if the parameters are correct.
         Arguments:
             response: Dictionary with the transaction data fetched from self.get_transaction_data
             basket: Basket assigned to the transaction
@@ -136,7 +141,10 @@ class Webpay(BasePaymentProcessor):
             "api_secret": self.configuration["api_secret"],
             "token": token
         })
-        print(result.json(), result.status_code)
+        
+        if result.status_code == 403 or result.status_code == 500:
+            raise GatewayError("Webpay Module is not ready")
+
         self.record_processor_response(result.json(), transaction_id=None, basket=None)
         return result.json()
 
