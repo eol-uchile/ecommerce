@@ -5,16 +5,21 @@
 ### Initial configuration
 ```
 python manage.py create_or_update_site \
-  --site-id=1 --site-domain=ecommerce.staging.eol.espinoza.dev \
+  --site-id=1 \
+  --site-name=ecommerce.staging.eol.espinoza.dev
+  --site-domain=ecommerce.staging.eol.espinoza.dev \
   --partner-code=eol --partner-name='Eol edX' \
   --lms-url-root=staging.eol.espinoza.dev \
-  --theme-scss-path=sass/themes/edx.scss \
   --payment-processors=webpay \
-  --backend-service-client-id=some-client-id \
-  --backend-service-client-key=some-client-secret \
-  --sso-client-id=oauth client id \
-  --sso-client-key=oauth client key \
-  --from-email=eol-ayuda@uchile.cl
+  --backend-service-client-id=CHANGE ME \
+  --backend-service-client-secret=CHANGE ME \
+  --sso-client-id=CHANGE ME \
+  --sso-client-secret=CHANGE ME \
+  --from-email=eol-ayuda@uchile.cl \
+  --payment-support-email=eol-ayuda@uchile.cl \
+  --payment-support-url=https://eol.uchile.cl/faq \
+  --discovery_api_url=https://discovery.staging.eol.espinoza.dev/api/v1 \
+  --base-cookie-domain .staging.eol.espinoza.dev
 ```
 
 The partner code is used to define the payment processor configuration. The default code normally is edx.
@@ -44,6 +49,8 @@ Some values that should be lookep upon in case of malfunctions:
 - Payment support url: https://eol.uchile.cl/faq
 - Payment support email: eol-ayuda@uchile.cl
 
+**ADD on the admin** on the *django wafle / switches* a new switch with the name payment_processor_active_webpay and set it as active 
+
 ## LMS
 
 Create a user for the ecommerce service that can provide access using oauth2.
@@ -67,6 +74,9 @@ Add a second application for the oauth grants:
   - skip authorization: true or checked
 
 These configuration must match first the BACKEND_SERVICE_EDX keys and for the latter the SOCIAL_AUTH_EDX_OAUTH2
+
+
+Afterwards add the *commerce/commerce configurations* with the defaults and a time of 60 seconds.
 
 ## Other references
 
