@@ -39,7 +39,7 @@ my_user = User.objects.filter(email="your@email.com")[0] # or use username
 my_user.lms_user_id = VALID_NUMBER
 my_user.save()
 ```
-This will give access :)
+This will give you access :)
 
 ### Using the Admin
 
