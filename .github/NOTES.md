@@ -8,7 +8,7 @@ When loading custom JS code for templates it may not load or compile. The troubl
     - If it does then modify the files:
       - build.js
       - ecommerce/static/js/config.js
-    - The latter tell ```r3.js``` to where look for and what to compile.
+    - The latter tells ```r.js``` to where look for and what to compile.
 3. ```make static``` by rebuilding the image. Whitenoise seems not to update the references, which may result on the app not loading the new files.
 
 ## Webpay
