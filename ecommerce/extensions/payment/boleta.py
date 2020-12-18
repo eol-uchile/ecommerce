@@ -16,6 +16,7 @@ default_config = {
     "client_id": "secret",
     "client_secret": "secret",
     "client_scope": "dte:tdo",
+    "config_centro_costos": "secret",
     "config_cuenta_contable": "secret",
     "config_sucursal": "secret",
     "config_reparticion": "secret",
@@ -81,6 +82,10 @@ def make_boleta_electronica(basket, order_total, auth, configuration=default_con
 
     # Get user info
     billing_info = UserBillingInfo.objects.get(basket=basket)
+    rut = billing_info.id_number
+    if billing_info.id_option != UserBillingInfo.RUT:
+        rut = "66666666-6"
+
     # Get product info
     product_lines = basket.all_lines()
     if len(product_lines) > 1:
@@ -105,7 +110,7 @@ def make_boleta_electronica(basket, order_total, auth, configuration=default_con
             "afecta": False,
             "detalleProductosServicios": [{
                 "cantidadItem": 1,  # TODO: Variable
-                # "centroCosto": config_centro_costos, # TODO: Configurar; No
+                "centroCosto": configuration["config_centro_costos"], # TODO: Configurar; No
                 # TODO: Configurar
                 "cuentaContable": configuration["config_cuenta_contable"],
                 "descripcionAdicionalItem": "",
@@ -113,21 +118,20 @@ def make_boleta_electronica(basket, order_total, auth, configuration=default_con
                 "impuesto": 0.0,
                 "indicadorExencion": 2,  # Servicio no facturable
                 "nombreItem": course_product.title,
-                # TODO: Configurar (Mis 10 pesos)
                 "precioUnitarioItem": order_total,
                 "unidadMedidaItem": "",
             }],
             "indicadorServicio": 3,  # Boletas de venta y servicios
             "receptor": {
-                "apellidoPaterno": billing_info.last_name_1,  # TODO: Variable *
-                "apellidoMaterno": billing_info.last_name_2,  # TODO: Variable *
+                "apellidoPaterno": billing_info.last_name_1,  
+                "apellidoMaterno": billing_info.last_name_2,  
                 # Opcional en nuestro caso (Servicio 3) aplica para comuna, direccion
                 "ciudad": billing_info.billing_city,
                 "comuna": billing_info.billing_district,
                 "direccion": billing_info.billing_address,
                 "nombre": billing_info.first_name,  # TODO: Variable *
                 # Rut del Receptor. Si no se informa, por regulación, se agrega 66666666-6. (Largo máximo 10, formato 12345678-K)
-                "rut": billing_info.id_number
+                "rut": rut
             },
             "referencia": [{  # TODO: Opcional para gestion interna (?)
                 "codigoCaja": "eceol",
@@ -146,7 +150,7 @@ def make_boleta_electronica(basket, order_total, auth, configuration=default_con
                 "codigo": configuration["config_sucursal"],
                 "comuna": "Santiago",
                 "direccion": "Diagonal Paraguay Nº 257",
-                "reparticion": 'config_reparticion',
+                "reparticion": configuration["config_reparticion"],
             },
         },
         "recaudaciones": [{
@@ -173,6 +177,9 @@ def make_boleta_electronica(basket, order_total, auth, configuration=default_con
     boleta = BoletaElectronica(
         basket=basket, receipt_url=voucher_url, voucher_id=voucher_id)
     boleta.save()
+
+    billing_info.boleta = boleta
+    billing_info.save()
 
     return {
         'id': voucher_id,

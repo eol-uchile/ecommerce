@@ -49,7 +49,7 @@ Some values that should be lookep upon in case of malfunctions:
 - Payment support url: https://eol.uchile.cl/faq
 - Payment support email: eol-ayuda@uchile.cl
 
-**ADD on the admin** on the *django wafle / switches* a new switch with the name payment_processor_active_webpay and set it as active 
+**ADD on the Ecommerce admin** on the *django wafle / switches* a new switch with the name payment_processor_active_webpay and set it as active 
 
 ## LMS
 
@@ -77,6 +77,8 @@ These configuration must match first the BACKEND_SERVICE_EDX keys and for the la
 
 
 Afterwards add the *commerce/commerce configurations* with the defaults and a time of 60 seconds.
+
+Finally add the scopes *user_id, profile, email* to the application grants and associate it to the oauth application with authorization code.
 
 ## Other references
 

@@ -293,21 +293,38 @@ from oscar.apps.payment.models import *  # noqa isort:skip pylint: disable=ungro
 # =================================
 # EOL Additional models
 # =================================
+
+class BoletaElectronica(models.Model):
+    basket = models.ForeignKey('basket.Basket', verbose_name=_('Basket'),
+                            null=True, blank=True, on_delete=models.CASCADE)
+    # We don't expect ids to grow that much
+    voucher_id = models.CharField(max_length=64)
+    receipt_url = models.CharField(max_length=255)
+
 class UserBillingInfo(models.Model):
+
+    RUT = '0'
+    PASSPORT = '1'
+    OTRO = '2'
+    ID_TYPES = [
+        (RUT, 'Rut'),
+        (PASSPORT, 'Pasaporte'),
+        (OTRO, 'Otros'),
+    ]
+
     billing_city = models.CharField(null=True, max_length=50)
     billing_district = models.CharField(null=True, max_length=50)
     billing_address = models.CharField(null=True, max_length=255)
     id_number = models.CharField(default="66666666-6", max_length=14)
+    id_option = models.CharField(choices=ID_TYPES,max_length=1,default=RUT)
     # We can get the user by looking at the owner
     basket = models.ForeignKey('basket.Basket', verbose_name=_('Basket'),
-                            null=True, blank=True, on_delete=models.SET_NULL)
+                            null=True, blank=True, on_delete=models.CASCADE)
     first_name = models.CharField(max_length=100)
     last_name_1 = models.CharField(max_length=255)
     last_name_2 = models.CharField(max_length=255,blank=True)
+    boleta = models.ForeignKey(to=BoletaElectronica, on_delete=models.CASCADE,
+                            null=True, blank=True, default=None)
 
-class BoletaElectronica(models.Model):
-    basket = models.ForeignKey('basket.Basket', verbose_name=_('Basket'),
-                            null=True, blank=True, on_delete=models.SET_NULL)
-    # We don't expect ids to grow that much
-    voucher_id = models.CharField(max_length=64)
-    receipt_url = models.CharField(max_length=255)
+    def __str__(self):
+        return "Boleta de {} {}".format(self.first_name, self.last_name_1)

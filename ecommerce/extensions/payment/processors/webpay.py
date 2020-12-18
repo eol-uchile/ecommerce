@@ -97,18 +97,18 @@ class Webpay(BasePaymentProcessor):
             'token_ws': result['token'],
         }
 
-        if hasattr(settings, 'BOLETA_CONFIG') and settings.BOLETA_CONFIG['enabled']:
-            # After all is ready register the billing info
-            billing_info = UserBillingInfo(
-                billing_district=request.data.get("billing_district"),
-                billing_city=request.data.get("billing_city"),
-                billing_address=request.data.get("billing_address"),
-                id_number=request.data.get("id_number"),
-                basket=basket,
-                first_name=request.data.get("first_name"),
-                last_name_1=request.data.get("last_name_1"),
-                last_name_2=request.data.get("last_name_2"))
-            billing_info.save()
+        # After all is ready register the billing info
+        billing_info = UserBillingInfo(
+            billing_district=request.data.get("billing_district"),
+            billing_city=request.data.get("billing_city"),
+            billing_address=request.data.get("billing_address"),
+            id_number=request.data.get("id_number"),
+            id_option=request.data.get("id_option"),
+            basket=basket,
+            first_name=request.data.get("first_name"),
+            last_name_1=request.data.get("last_name_1"),
+            last_name_2=request.data.get("last_name_2"))
+        billing_info.save()
 
         return parameters
 

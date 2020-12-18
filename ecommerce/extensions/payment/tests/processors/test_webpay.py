@@ -19,6 +19,7 @@ class WebpayTests(PaymentProcessorTestCaseMixin, TestCase):
         "client_id": "secret",
         "client_secret": "secret",
         "client_scope": "dte:tdo",
+        "config_centro_costos": "secret",
         "config_cuenta_contable": "secret",
         "config_sucursal": "secret",
         "config_reparticion": "secret",
@@ -53,23 +54,6 @@ class WebpayTests(PaymentProcessorTestCaseMixin, TestCase):
             url='http://transbank:5000/process-webpay',
             json={"token": "test-token", "url": "http://webpay.cl"}
         )
-        # Basket comes from mixin setup
-        response = self.processor.get_transaction_parameters(self.basket)
-
-        expected = {
-            'payment_page_url': "http://webpay.cl",
-            'token_ws': "test-token",
-        }
-
-        self.assertEquals(expected, response)
-
-    @responses.activate
-    def test_get_transaction_parameters_boleta(self):
-        responses.add(
-            method=responses.POST,
-            url='http://transbank:5000/process-webpay',
-            json={"token": "test-token", "url": "http://webpay.cl"}
-        )
 
         # Append data instead of creating new request
         self.request.data = {
@@ -77,23 +61,24 @@ class WebpayTests(PaymentProcessorTestCaseMixin, TestCase):
             "billing_city": "city",
             "billing_address": "address",
             "id_number": "id_number",
+            "id_option": "0",
             "first_name": "name",
             "last_name_1": "last name",
             "last_name_2": "second last name",
         }
 
-        with override_settings(BOLETA_CONFIG=self.boleta_settings):
-            response = self.processor.get_transaction_parameters(
-                self.basket, request=self.request)
+        response = self.processor.get_transaction_parameters(
+            self.basket, request=self.request)
 
-            expected = {
-                'payment_page_url': "http://webpay.cl",
-                'token_ws': "test-token",
-            }
+        expected = {
+            'payment_page_url': "http://webpay.cl",
+            'token_ws': "test-token",
+        }
 
-            self.assertEquals(expected, response)
-            # Check that billing info was saved
-            self.assertTrue(UserBillingInfo.objects.get(basket=self.basket))
+        self.assertEqual(expected, response)
+        # Check that billing info was saved
+        self.assertIsNotNone(UserBillingInfo.objects.get(basket=self.basket))
+        self.assertEqual(UserBillingInfo.RUT,UserBillingInfo.objects.get(basket=self.basket).id_option)
 
     @responses.activate
     def test_get_transaction_parameters_webpay_down(self):
@@ -160,6 +145,7 @@ class WebpayTests(PaymentProcessorTestCaseMixin, TestCase):
             billing_city="city",
             billing_address="address",
             id_number="id_number",
+            id_option="1",
             first_name="name",
             last_name_1="last name",
             last_name_2="second last name",
@@ -187,6 +173,10 @@ class WebpayTests(PaymentProcessorTestCaseMixin, TestCase):
                              transaction_details["detailOutput"][0]["amount"])
             self.assertEqual(handled_response.transaction_id,
                              transaction_details["detailOutput"][0]["buyOrder"])
+            # Check that billing info was saved
+            user_billing_info = UserBillingInfo.objects.get(basket=self.basket)
+            self.assertIsNotNone(user_billing_info.boleta)
+            self.assertEqual(UserBillingInfo.PASSPORT, user_billing_info.id_option)
 
     @responses.activate
     def test_handle_processor_response_boleta_no_connection(self):
@@ -215,7 +205,7 @@ class WebpayTests(PaymentProcessorTestCaseMixin, TestCase):
             json=transaction_details
         )
         response = self.processor.get_transaction_data("token")
-        self.assertEquals(transaction_details, response)
+        self.assertEqual(transaction_details, response)
 
     @responses.activate
     def test_get_transaction_data_webpay_down(self):
