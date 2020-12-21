@@ -3,6 +3,7 @@ import requests
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 from oscar.core.loading import get_model
+from oscar.apps.partner import strategy
 
 from ecommerce.extensions.payment.models import UserBillingInfo
 from ecommerce.extensions.payment.boleta import authenticate_boleta_electronica, make_boleta_electronica
@@ -40,6 +41,7 @@ class Command(BaseCommand):
                     continue
                 info = info[0]
                 basket = info.basket
+                basket.strategy = strategy.Default()
 
                 if not dry_run:
                     auth = authenticate_boleta_electronica()
@@ -49,7 +51,7 @@ class Command(BaseCommand):
                 logger.info("Completed Boleta for order {}, user {}, amount CLP {}".format(order.number,basket.owner.username, order.total_incl_tax))
             except requests.exceptions.ConnectionError:
                 failed = failed + 1
-                logger.warning("Coudn't connect to boleta API for{}".format(info), exc_info=True)
+                logger.warning("Coudn't connect to boleta API for {}".format(info), exc_info=True)
             except Exception:
                 failed = failed + 1
                 logger.warning("Error while processing boleta for {}".format(info), exc_info=True)

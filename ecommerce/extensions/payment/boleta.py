@@ -110,7 +110,7 @@ def make_boleta_electronica(basket, order_total, auth, configuration=default_con
             "afecta": False,
             "detalleProductosServicios": [{
                 "cantidadItem": 1,  # TODO: Variable
-                "centroCosto": configuration["config_centro_costos"], # TODO: Configurar; No
+                #"centroCosto": configuration["config_centro_costos"], # TODO: Configurar; No
                 # TODO: Configurar
                 "cuentaContable": configuration["config_cuenta_contable"],
                 "descripcionAdicionalItem": "",
