@@ -7,7 +7,8 @@ define([
   "utils/credit_card",
   "utils/key_codes",
   "js-cookie",
-], function ($, _, _s, Utils, CreditCardUtils, KeyCodes, Cookies) {
+  "utils/rut_validator",
+], function ($, _, _s, Utils, CreditCardUtils, KeyCodes, Cookies, Rut) {
   "use strict";
 
   var BasketPage = {
@@ -612,6 +613,23 @@ define([
         }
         BasketPage.cardInfoValidation(e);
         BasketPage.cardHolderInfoValidation(e);
+      });
+
+      $("#bId").on("input", function (e) {
+        Rut.checkRut(e.target, true);
+      });
+
+      $("#bIdType").on("change", function (e) {
+        let value = e.target.value;
+        $alternative = $("#bIdAlternative-wrapper");
+        $alternativeInput = $("#bIdAlternative");
+        if (value !== "2") {
+          $alternative.addClass("hidden");
+          $alternativeInput.removeAttr("required");
+        } else {
+          $alternative.removeClass("hidden");
+          $alternativeInput.attr("required", true);
+        }
       });
 
       // NOTE: We only include buttons that have a data-processor-name attribute because we don't want to

@@ -125,11 +125,7 @@ def make_boleta_electronica(basket, order_total, auth, configuration=default_con
             "receptor": {
                 "apellidoPaterno": billing_info.last_name_1,  
                 "apellidoMaterno": billing_info.last_name_2,  
-                # Opcional en nuestro caso (Servicio 3) aplica para comuna, direccion
-                "ciudad": billing_info.billing_city,
-                "comuna": billing_info.billing_district,
-                "direccion": billing_info.billing_address,
-                "nombre": billing_info.first_name,  # TODO: Variable *
+                "nombre": billing_info.first_name,
                 # Rut del Receptor. Si no se informa, por regulación, se agrega 66666666-6. (Largo máximo 10, formato 12345678-K)
                 "rut": rut
             },
@@ -154,12 +150,18 @@ def make_boleta_electronica(basket, order_total, auth, configuration=default_con
             },
         },
         "recaudaciones": [{
-            "monto": order_total,  # TODO: Configurar (Mis 10 pesos)
+            "monto": order_total,
             "tipoPago": "Tarjeta de Crédito",  # Efectivo | Debito | Tarjeta de Crédito
             # NOTE: numero para gestion interna de transacciones
             "voucher": basket.order_number,
         }],
     }
+
+    # Opcional en nuestro caso (Servicio 3) aplica para comuna, direccion
+    if billing_info.billing_country_iso2 == "CL":
+        data["datosBoleta"]["receptor"]["ciudad"] = billing_info.billing_city
+        data["datosBoleta"]["receptor"]["comuna"] = billing_info.billing_district
+        data["datosBoleta"]["receptor"]["direccion"] = billing_info.billing_address
 
     try:
         result = requests.post(config_ventas_url + "/ventas",

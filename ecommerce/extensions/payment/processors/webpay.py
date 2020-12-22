@@ -9,6 +9,7 @@ import urllib.request, urllib.parse, urllib.error
 from urllib.parse import urljoin
 from collections import OrderedDict
 from decimal import Decimal
+from itertools import cycle
 import xml.etree.ElementTree as xml
 
 from django.urls import reverse
@@ -19,6 +20,7 @@ from oscar.core.loading import get_class, get_model
 from ecommerce.extensions.payment.processors import BasePaymentProcessor, HandledProcessorResponse
 from ecommerce.extensions.payment.models import UserBillingInfo
 from ecommerce.extensions.payment.boleta import authenticate_boleta_electronica, make_boleta_electronica, BoletaElectronicaException
+from ecommerce.extensions.payment.exceptions import PartialAuthorizationError
 from ecommerce.extensions.checkout.utils import get_receipt_page_url
 from ecommerce.core.url_utils import get_ecommerce_url
 
@@ -47,6 +49,30 @@ class Webpay(BasePaymentProcessor):
         """
         super(Webpay, self).__init__(site)
 
+    def validarRut(self, rut):
+        """
+            Verify if the 'rut' is valid
+            Reference: https://github.com/eol-uchile/uchileedxlogin/blob/master/uchileedxlogin/views.py#L283
+        """
+        rut = rut.upper()
+        rut = rut.replace("-", "")
+        rut = rut.replace(".", "")
+        rut = rut.strip()
+        aux = rut[:-1]
+        dv = rut[-1:]
+
+        revertido = list(map(int, reversed(str(aux))))
+        factors = cycle(list(range(2, 8)))
+        s = sum(d * f for d, f in zip(revertido, factors))
+        res = (-s) % 11
+
+        if str(res) == dv:
+            return True
+        elif dv == "K" and res == 10:
+            return True
+        else:
+            return False
+
     def get_transaction_parameters(self, basket, request=None, use_client_side_checkout=False, **kwargs):
         """
         Create a new Webpay payment.
@@ -69,6 +95,14 @@ class Webpay(BasePaymentProcessor):
         #)
         return_url = urljoin(get_ecommerce_url(), reverse('webpay:return', kwargs={'order_number': basket.order_number}))
         notify_url = self.notify_url
+
+
+        # Before anything verify fields
+        id_type = request.data.get("id_option")
+        if id_type == "0":
+            valid_rut = self.validarRut(request.data.get("id_number"))
+            if not valid_rut:
+                raise Exception("Failed RUT validation")
 
         result = requests.post(self.configuration["api_url"]+"/process-webpay", json={
             "notify_url": notify_url.replace("http://","https://"),
@@ -102,8 +136,10 @@ class Webpay(BasePaymentProcessor):
             billing_district=request.data.get("billing_district"),
             billing_city=request.data.get("billing_city"),
             billing_address=request.data.get("billing_address"),
+            billing_country_iso2=request.data.get("billing_country"),
             id_number=request.data.get("id_number"),
             id_option=request.data.get("id_option"),
+            id_other=request.data.get("id_other"),
             basket=basket,
             first_name=request.data.get("first_name"),
             last_name_1=request.data.get("last_name_1"),
@@ -133,6 +169,8 @@ class Webpay(BasePaymentProcessor):
                     raise WebpayAlreadyProcessed()
                 
                 if hasattr(settings, 'BOLETA_CONFIG') and settings.BOLETA_CONFIG['enabled']:
+                    # Boleta can be issued using the boleta_emissions commmand
+                    # thus we no longer abort payment
                     try:
                         # DATA FLOW FROM WEBPAY TO BOLETA ELECTRONICA
                         boleta_auth = authenticate_boleta_electronica()
@@ -143,13 +181,16 @@ class Webpay(BasePaymentProcessor):
                         )
                     except requests.exceptions.ConnectTimeout:
                         logger.error("BOLETA API couldn't connect. {}".format(e))
-                        raise WebpayTransactionDeclined()
+                        if settings.BOLETA_CONFIG["halt_on_boleta_failure"]:
+                            raise WebpayTransactionDeclined()
                     except BoletaElectronicaException as e:
                         logger.error("BOLETA API HAS FAILED. {}".format(e), exc_info=True)
-                        raise WebpayTransactionDeclined()
+                        if settings.BOLETA_CONFIG["halt_on_boleta_failure"]:
+                            raise WebpayTransactionDeclined()
                     except Exception as e:
                         logger.error("BOLETA API had an unexpected error ?{}".format(e), exc_info=True)
-                        raise WebpayTransactionDeclined()
+                        if settings.BOLETA_CONFIG["halt_on_boleta_failure"]:
+                            raise WebpayTransactionDeclined()
 
                 return HandledProcessorResponse(
                     transaction_id=basket.order_number,
@@ -160,6 +201,7 @@ class Webpay(BasePaymentProcessor):
                 )
             else:
                 logger.error("Transaction [{}] have different transaction ammount [{}], expected [{}]".format(basket.order_number, response['detailOutput'][0]['amount'], basket.total_incl_tax))
+                raise PartialAuthorizationError()
         else:
             logger.error("Transaction [{}] for basket [{}] not done or with invalid amount.\n {}".format(basket.order_number, basket.id, response))
             raise WebpayTransactionDeclined()

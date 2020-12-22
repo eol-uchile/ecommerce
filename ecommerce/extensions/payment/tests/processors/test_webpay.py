@@ -3,6 +3,7 @@ import responses
 from django.test import override_settings
 from oscar.apps.payment.exceptions import GatewayError, TransactionDeclined
 from ecommerce.tests.testcases import TestCase
+from ecommerce.extensions.payment.exceptions import PartialAuthorizationError
 from ecommerce.extensions.payment.processors.webpay import Webpay, WebpayTransactionDeclined
 from ecommerce.extensions.payment.tests.processors.mixins import PaymentProcessorTestCaseMixin
 from ecommerce.extensions.payment.models import UserBillingInfo
@@ -16,6 +17,7 @@ class WebpayTests(PaymentProcessorTestCaseMixin, TestCase):
 
     boleta_settings = {
         "enabled": True,
+        "halt_on_boleta_failure": True,
         "client_id": "secret",
         "client_secret": "secret",
         "client_scope": "dte:tdo",
@@ -26,6 +28,19 @@ class WebpayTests(PaymentProcessorTestCaseMixin, TestCase):
         "config_identificador_pos": "secret",
         "config_ventas_url": "https://ventas-test.uchile.cl/ventas-api-front/api/v1",
     }
+
+    billing_info_form = {
+            "billing_district": "district",
+            "billing_city": "city",
+            "billing_address": "address",
+            "billing_country": "CL",
+            "id_number": "1-9",
+            "id_option": "0",
+            "id_other": "",
+            "first_name": "name",
+            "last_name_1": "last name",
+            "last_name_2": "second last name",
+        }
 
     def get_transaction_details_helper(self):
         """Helper function"""
@@ -56,16 +71,7 @@ class WebpayTests(PaymentProcessorTestCaseMixin, TestCase):
         )
 
         # Append data instead of creating new request
-        self.request.data = {
-            "billing_district": "district",
-            "billing_city": "city",
-            "billing_address": "address",
-            "id_number": "id_number",
-            "id_option": "0",
-            "first_name": "name",
-            "last_name_1": "last name",
-            "last_name_2": "second last name",
-        }
+        self.request.data = self.billing_info_form
 
         response = self.processor.get_transaction_parameters(
             self.basket, request=self.request)
@@ -81,14 +87,32 @@ class WebpayTests(PaymentProcessorTestCaseMixin, TestCase):
         self.assertEqual(UserBillingInfo.RUT,UserBillingInfo.objects.get(basket=self.basket).id_option)
 
     @responses.activate
+    def test_get_transaction_parameters_fail_rut(self):
+        responses.add(
+            method=responses.POST,
+            url='http://transbank:5000/process-webpay',
+            json={"token": "test-token", "url": "http://webpay.cl"}
+        )
+
+        # Append data instead of creating new request
+        self.request.data = self.billing_info_form.copy()
+        self.request.data["id_number"] = "13"
+
+        self.assertRaises(Exception,self.processor.get_transaction_parameters,
+            self.basket, self.request)
+
+
+    @responses.activate
     def test_get_transaction_parameters_webpay_down(self):
         responses.add(
             method=responses.POST,
             url='http://transbank:5000/process-webpay',
             status=403
         )
-        self.assertRaises(
-            GatewayError, self.processor.get_transaction_parameters, self.basket)
+        self.request.data = self.billing_info_form
+
+        self.assertRaises(GatewayError, self.processor.get_transaction_parameters,
+            self.basket, self.request)
 
     @responses.activate
     def test_get_transaction_parameters_faulty_response(self):
@@ -98,15 +122,19 @@ class WebpayTests(PaymentProcessorTestCaseMixin, TestCase):
             url='http://transbank:5000/process-webpay',
             json={"token": None, "url": "http://webpay.cl"}
         )
-        self.assertRaises(
-            TransactionDeclined, self.processor.get_transaction_parameters, self.basket)
+
+        self.request.data = self.billing_info_form
+
+        self.assertRaises(TransactionDeclined, self.processor.get_transaction_parameters,
+            self.basket, self.request)
+
         responses.add(
             method=responses.POST,
             url='http://transbank:5000/process-webpay',
             json={"token": '', "url": "http://webpay.cl"}
         )
-        self.assertRaises(
-            TransactionDeclined, self.processor.get_transaction_parameters, self.basket)
+        self.assertRaises(TransactionDeclined, self.processor.get_transaction_parameters,
+            self.basket, self.request)
 
     def test_handle_processor_response(self):
 
@@ -124,7 +152,7 @@ class WebpayTests(PaymentProcessorTestCaseMixin, TestCase):
         transaction_details = self.get_transaction_details_helper()
         transaction_details["detailOutput"][0]["amount"] = -100
 
-        self.assertRaises(GatewayError, self.processor.handle_processor_response,
+        self.assertRaises(PartialAuthorizationError, self.processor.handle_processor_response,
                           transaction_details, self.basket)
 
     def test_handle_processor_response_webpay_error(self):
@@ -144,8 +172,10 @@ class WebpayTests(PaymentProcessorTestCaseMixin, TestCase):
             billing_district="district",
             billing_city="city",
             billing_address="address",
-            id_number="id_number",
+            billing_country_iso2="CL",
+            id_number="1-9",
             id_option="1",
+            id_other="",
             first_name="name",
             last_name_1="last name",
             last_name_2="second last name",
@@ -154,6 +184,54 @@ class WebpayTests(PaymentProcessorTestCaseMixin, TestCase):
         billing_info.save()
 
         with override_settings(BOLETA_CONFIG=self.boleta_settings):
+
+            responses.add(
+                method=responses.POST,
+                url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/authorization-token',
+                json={"access_token": "test"}
+            )
+
+            responses.add(
+                method=responses.POST,
+                url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/ventas',
+                json={"id": "test"}
+            )
+
+            handled_response = self.processor.handle_processor_response(
+                transaction_details, self.basket)
+            self.assertEqual(handled_response.total,
+                             transaction_details["detailOutput"][0]["amount"])
+            self.assertEqual(handled_response.transaction_id,
+                             transaction_details["detailOutput"][0]["buyOrder"])
+            # Check that billing info was saved
+            user_billing_info = UserBillingInfo.objects.get(basket=self.basket)
+            self.assertIsNotNone(user_billing_info.boleta)
+            self.assertEqual(UserBillingInfo.PASSPORT, user_billing_info.id_option)
+
+
+    @responses.activate
+    def test_handle_processor_response_no_boleta_fail_settings(self):
+
+        transaction_details = self.get_transaction_details_helper()
+
+        billing_info = UserBillingInfo(
+            billing_district="district",
+            billing_city="city",
+            billing_address="address",
+            billing_country_iso2="CL",
+            id_number="1-9",
+            id_option="1",
+            id_other="",
+            first_name="name",
+            last_name_1="last name",
+            last_name_2="second last name",
+            basket=self.basket
+        )
+        billing_info.save()
+
+        no_fail_settings = self.boleta_settings.copy()
+        no_fail_settings["halt_on_boleta_failure"] = False
+        with override_settings(BOLETA_CONFIG=no_fail_settings):
 
             responses.add(
                 method=responses.POST,
