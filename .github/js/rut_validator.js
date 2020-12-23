@@ -1,16 +1,19 @@
 define(["jquery"], function ($) {
   /**
-   * Check rut using an input html element
+   * Check rut using an input html element with default vanilla JS
    * Reference https://gist.github.com/rotvulpix/69a24cc199a4253d058c
    */
   return {
-    checkRut: function (rut, checkType = false) {
+    checkRut: function (rut_input_id, checkType = false) {
+      var rut = document.getElementById(rut_input_id);
+
       // Preventive check
       if (checkType) {
         var docType = $("#bIdType");
-        if (docType.value !== "0") {
+        if (docType.val() !== "0") {
           // all is good in the world
           rut.setCustomValidity("");
+          rut.reportValidity();
           return;
         }
       }
@@ -33,6 +36,7 @@ define(["jquery"], function ($) {
 
       if (cuerpo.length < 1) {
         rut.setCustomValidity("RUT Incompleto");
+        rut.reportValidity();
         return false;
       }
 
@@ -62,11 +66,13 @@ define(["jquery"], function ($) {
       // Validar que el Cuerpo coincide con su Dígito Verificador
       if (dvEsperado != dv) {
         rut.setCustomValidity("RUT Inválido");
+        rut.reportValidity();
         return false;
       }
 
       // Si todo sale bien, eliminar errores (decretar que es válido)
       rut.setCustomValidity("");
+      rut.reportValidity();
     },
   };
 });

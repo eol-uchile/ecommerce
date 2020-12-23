@@ -616,13 +616,13 @@ define([
       });
 
       $("#bId").on("input", function (e) {
-        Rut.checkRut(e.target, true);
+        Rut.checkRut("#bId", true);
       });
 
       $("#bIdType").on("change", function (e) {
-        let value = e.target.value;
-        $alternative = $("#bIdAlternative-wrapper");
-        $alternativeInput = $("#bIdAlternative");
+        var value = e.target.value;
+        var $alternative = $("#bIdAlternative-wrapper");
+        var $alternativeInput = $("#bIdAlternative");
         if (value !== "2") {
           $alternative.addClass("hidden");
           $alternativeInput.removeAttr("required");

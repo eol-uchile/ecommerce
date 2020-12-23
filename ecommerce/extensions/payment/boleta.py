@@ -83,6 +83,7 @@ def make_boleta_electronica(basket, order_total, auth, configuration=default_con
     # Get user info
     billing_info = UserBillingInfo.objects.get(basket=basket)
     rut = billing_info.id_number
+    # Rut del Receptor. Si no se informa, por regulación, se agrega 66666666-6. (Largo máximo 10, formato 12345678-K)
     if billing_info.id_option != UserBillingInfo.RUT:
         rut = "66666666-6"
 
@@ -103,22 +104,23 @@ def make_boleta_electronica(basket, order_total, auth, configuration=default_con
     # VN es Credito
     # VD es Debito
     # Asume credit
+    itemName = course_product.title.replace('Seat in ','')
+    itemName = itemName[:itemName.find(" with ")]
 
     # TODO: Sacar todo lo que creemos que es opcional, y hacer busqueda binaria
     data = {
         "datosBoleta": {
-            "afecta": False,
+            "afecta": False, # No afecto a impuestos
             "detalleProductosServicios": [{
-                "cantidadItem": 1,  # TODO: Variable
-                #"centroCosto": configuration["config_centro_costos"], # TODO: Configurar; No
-                # TODO: Configurar
+                "cantidadItem": product_lines[0].quantity,
+                #"centroCosto": configuration["config_centro_costos"],
                 "cuentaContable": configuration["config_cuenta_contable"],
                 "descripcionAdicionalItem": "",
                 "identificadorProducto": course_product.id,
                 "impuesto": 0.0,
                 "indicadorExencion": 2,  # Servicio no facturable
-                "nombreItem": course_product.title,
-                "precioUnitarioItem": order_total,
+                "nombreItem": "Certificación por curso de formación en extensión: {}".format(itemName),
+                "precioUnitarioItem": product_lines[0].price_incl_tax,
                 "unidadMedidaItem": "",
             }],
             "indicadorServicio": 3,  # Boletas de venta y servicios
@@ -126,10 +128,9 @@ def make_boleta_electronica(basket, order_total, auth, configuration=default_con
                 "apellidoPaterno": billing_info.last_name_1,  
                 "apellidoMaterno": billing_info.last_name_2,  
                 "nombre": billing_info.first_name,
-                # Rut del Receptor. Si no se informa, por regulación, se agrega 66666666-6. (Largo máximo 10, formato 12345678-K)
                 "rut": rut
             },
-            "referencia": [{  # TODO: Opcional para gestion interna (?)
+            "referencia": [{  # Opcional para gestion interna
                 "codigoCaja": "eceol",
                 "codigoReferencia": basket.order_number,
                 "codigoVendedor": "INTERNET",
@@ -140,24 +141,21 @@ def make_boleta_electronica(basket, order_total, auth, configuration=default_con
         "puntoVenta": {
             "cuentaCorriente": True,  # Se requiere para anular la venta
             "identificadorPos": configuration["config_identificador_pos"],
-            "nombre": "",  # TODO: Configurar Opcional
-            "rutCajero": "",  # TODO: Configurar Opcional
-            "sucursal": {  # TODO: Configurar Opcional
-                "codigo": configuration["config_sucursal"],
+            "sucursal": {  # Opcional
+                "codigo": auth["codigoSII"], #configuration["config_sucursal"],
                 "comuna": "Santiago",
                 "direccion": "Diagonal Paraguay Nº 257",
-                "reparticion": configuration["config_reparticion"],
+                "reparticion": auth["repCodigo"], #configuration["config_reparticion"],
             },
         },
         "recaudaciones": [{
             "monto": order_total,
             "tipoPago": "Tarjeta de Crédito",  # Efectivo | Debito | Tarjeta de Crédito
-            # NOTE: numero para gestion interna de transacciones
-            "voucher": basket.order_number,
+            "voucher": basket.order_number, # numero para gestion interna de transacciones
         }],
     }
 
-    # Opcional en nuestro caso (Servicio 3) aplica para comuna, direccion
+    # Opcional en nuestro caso (Servicio 3) aplica para comuna, direccion, ciudad
     if billing_info.billing_country_iso2 == "CL":
         data["datosBoleta"]["receptor"]["ciudad"] = billing_info.billing_city
         data["datosBoleta"]["receptor"]["comuna"] = billing_info.billing_district

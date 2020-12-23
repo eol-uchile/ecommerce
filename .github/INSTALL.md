@@ -80,6 +80,18 @@ Afterwards add the *commerce/commerce configurations* with the defaults and a ti
 
 Finally add the scopes *user_id, profile, email* to the application grants and associate it to the oauth application with authorization code.
 
+## Managing courses
+
+When creating a course, it is required to:
+- have course-discovery configured and running
+- have collected course information on discovery
+
+To delete a course:
+- go to the Oscar dashboard and select products
+- delete both products for a course (yes, two are created)
+- go to the django admin
+- delete the course from courses
+
 ## Other references
 
 [Install docs](https://github.com/edx/ecommerce/blob/5a3f18f91f36c7af461bfd52e7c21578c62d4912/docs/install_ecommerce.rst#configure-oauth)

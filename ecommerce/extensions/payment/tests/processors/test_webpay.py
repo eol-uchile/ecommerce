@@ -188,7 +188,7 @@ class WebpayTests(PaymentProcessorTestCaseMixin, TestCase):
             responses.add(
                 method=responses.POST,
                 url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/authorization-token',
-                json={"access_token": "test"}
+                json={"access_token": "test", "codigoSII": "codigo sucursal", "repCodigo": "codigo reparticion"}
             )
 
             responses.add(
@@ -236,7 +236,7 @@ class WebpayTests(PaymentProcessorTestCaseMixin, TestCase):
             responses.add(
                 method=responses.POST,
                 url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/authorization-token',
-                json={"access_token": "test"}
+                json={"access_token": "test", "codigoSII": "codigo sucursal", "repCodigo": "codigo reparticion"}
             )
 
             responses.add(
