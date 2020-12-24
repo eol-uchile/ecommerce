@@ -244,8 +244,6 @@ class WebpayTests(PaymentProcessorTestCaseMixin, TestCase):
             self.assertIsNotNone(user_billing_info.boleta)
             self.assertEqual(UserBillingInfo.PASSPORT, user_billing_info.id_option)
 
-            raise Exception
-
     @responses.activate
     def test_handle_processor_response_no_boleta_fail_settings(self):
 
