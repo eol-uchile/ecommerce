@@ -6,6 +6,7 @@ from base64 import b64encode
 from django.http import FileResponse, JsonResponse, HttpResponse
 from django.shortcuts import render
 from django.conf import settings
+from django.core.mail import send_mail
 from oscar.core.loading import get_model
 from ecommerce.extensions.payment.models import UserBillingInfo, BoletaElectronica
 
@@ -34,6 +35,11 @@ class BoletaElectronicaException(Exception):
 
     def __str__(self):
         return "BOLETA API Error: {}".format(self.msg)
+
+class BoletaSinFoliosException(Exception):
+    """Raised when the UChile API has no more tickets"""
+    def __str__(self):
+        return "BOLETA API Error: no hay mas folios"
 
 
 def authenticate_boleta_electronica(configuration=default_config):
@@ -166,9 +172,19 @@ def make_boleta_electronica(basket, order_total, auth, configuration=default_con
                                headers=header,
                                json=data,
                                )
+        if ("folio" in result.text) and ("no" in result.text):
+            raise BoletaSinFoliosException()
         result.raise_for_status()
     except requests.exceptions.HTTPError as e:
         raise BoletaElectronicaException("http error "+str(e))
+    except BoletaSinFoliosException:
+        # Panic and Send mail 
+        send_mail(
+            'Boleta Electronica API Fatal Error',
+            'No quedan mas folios para la API de boletas electronicas. Panic!', None, ['ing-eol@uchile.cl'],
+            fail_silently=False,
+        )
+        raise BoletaElectronicaException("no more folios")
 
     voucher_id = result.json()['id']
     voucher_url = '{}/ventas/{}/boletas/pdf'.format(

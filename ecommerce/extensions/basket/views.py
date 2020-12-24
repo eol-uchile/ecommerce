@@ -436,7 +436,7 @@ class BasketAddItemsView(BasketLogicMixin, APIView):
             try:
                 basket = prepare_basket(request, available_products, voucher)
             except AlreadyPlacedOrderException:
-                return render(request, 'edx/error.html', {'error': _('You have already purchased these products')})
+                return render(request, 'edx/error.html', {'error': _('You have already purchased these products'), "support_email": request.site.siteconfiguration.payment_support_email})
 
             set_email_preference_on_basket(request, basket)
 

@@ -62,6 +62,22 @@ class WebpayTests(PaymentProcessorTestCaseMixin, TestCase):
                 "VCI": "",
                 }
 
+    def make_billing_info_helper(self,id_type,country_code):
+        billing_info = UserBillingInfo(
+            billing_district="district",
+            billing_city="city",
+            billing_address="address",
+            billing_country_iso2=country_code,
+            id_number="1-9",
+            id_option=id_type,
+            id_other="",
+            first_name="name",
+            last_name_1="last name",
+            last_name_2="second last name",
+            basket=self.basket
+        )
+        billing_info.save()
+
     @responses.activate
     def test_get_transaction_parameters(self):
         responses.add(
@@ -164,24 +180,44 @@ class WebpayTests(PaymentProcessorTestCaseMixin, TestCase):
                           transaction_details, self.basket)
 
     @responses.activate
-    def test_handle_processor_response_boleta(self):
+    def test_handle_processor_response_boleta_rut(self):
 
         transaction_details = self.get_transaction_details_helper()
 
-        billing_info = UserBillingInfo(
-            billing_district="district",
-            billing_city="city",
-            billing_address="address",
-            billing_country_iso2="CL",
-            id_number="1-9",
-            id_option="1",
-            id_other="",
-            first_name="name",
-            last_name_1="last name",
-            last_name_2="second last name",
-            basket=self.basket
-        )
-        billing_info.save()
+        self.make_billing_info_helper("0","CL")
+
+        with override_settings(BOLETA_CONFIG=self.boleta_settings):
+
+            responses.add(
+                method=responses.POST,
+                url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/authorization-token',
+                json={"access_token": "test", "codigoSII": "codigo sucursal", "repCodigo": "codigo reparticion"}
+            )
+
+            responses.add(
+                method=responses.POST,
+                url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/ventas',
+                json={"id": "test"}
+            )
+
+            handled_response = self.processor.handle_processor_response(
+                transaction_details, self.basket)
+            self.assertEqual(handled_response.total,
+                             transaction_details["detailOutput"][0]["amount"])
+            self.assertEqual(handled_response.transaction_id,
+                             transaction_details["detailOutput"][0]["buyOrder"])
+            # Check that billing info was saved
+            user_billing_info = UserBillingInfo.objects.get(basket=self.basket)
+            self.assertIsNotNone(user_billing_info.boleta)
+            self.assertEqual(UserBillingInfo.RUT, user_billing_info.id_option)
+
+
+    @responses.activate
+    def test_handle_processor_response_boleta_passport(self):
+
+        transaction_details = self.get_transaction_details_helper()
+
+        self.make_billing_info_helper("1","FR")
 
         with override_settings(BOLETA_CONFIG=self.boleta_settings):
 
@@ -208,26 +244,14 @@ class WebpayTests(PaymentProcessorTestCaseMixin, TestCase):
             self.assertIsNotNone(user_billing_info.boleta)
             self.assertEqual(UserBillingInfo.PASSPORT, user_billing_info.id_option)
 
+            raise Exception
 
     @responses.activate
     def test_handle_processor_response_no_boleta_fail_settings(self):
 
         transaction_details = self.get_transaction_details_helper()
 
-        billing_info = UserBillingInfo(
-            billing_district="district",
-            billing_city="city",
-            billing_address="address",
-            billing_country_iso2="CL",
-            id_number="1-9",
-            id_option="1",
-            id_other="",
-            first_name="name",
-            last_name_1="last name",
-            last_name_2="second last name",
-            basket=self.basket
-        )
-        billing_info.save()
+        self.make_billing_info_helper("1","US")
 
         no_fail_settings = self.boleta_settings.copy()
         no_fail_settings["halt_on_boleta_failure"] = False
