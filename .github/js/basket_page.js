@@ -616,7 +616,7 @@ define([
       });
 
       $("#bId").on("input", function (e) {
-        Rut.checkRut("#bId", true);
+        Rut.checkRut("bId", true);
       });
 
       $("#bIdType").on("change", function (e) {
