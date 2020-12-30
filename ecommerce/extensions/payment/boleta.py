@@ -219,7 +219,7 @@ def recover_boleta(request, configuration=default_config):
     """
     # Error context
     context = {
-        "order_number": order_number,
+        "order_number": "",
         "msg": "Hubo un error al recuperar su boleta electrónica.",
         "payment_support_email": request.site.siteconfiguration.payment_support_email
     }
@@ -237,6 +237,8 @@ def recover_boleta(request, configuration=default_config):
         logger.error("No Order provided to recover_boleta")
         context['msg'] = '¡Debe proveer un número de orden!.'
         return render(request, "edx/checkout/boleta_error.html",context)
+
+    context["order_number"] = order_number
 
     try:
         order = Order.objects.get(number=order_number)
