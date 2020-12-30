@@ -267,7 +267,7 @@ def recover_boleta(request, configuration=default_config):
         # Create buffer and populate
         boleta_auth = authenticate_boleta_electronica(configuration)
         config_ventas_url = configuration["config_ventas_url"]
-        file = requests.get(config_ventas_url + '/ventas/{}/boletas/pdf'.format(),
+        file = requests.get(config_ventas_url + '/ventas/{}/boletas/pdf'.format(boleta.voucher_id),
                         headers={"Authorization": "Bearer " +
                                  boleta_auth["access_token"]}
                         )
@@ -289,6 +289,6 @@ def recover_boleta(request, configuration=default_config):
     except requests.exceptions.ConnectionError as e:
         logger.error("Error while getting Boleta Electronica PDF, "+e, exc_info=True)
         return render(request, "edx/checkout/boleta_error.html",context)
-    except Exception:
+    except Exception as e:
         logger.error("Error while getting Boleta Electronica PDF, "+e, exc_info=True)
         return render(request, "edx/checkout/boleta_error.html",context)
