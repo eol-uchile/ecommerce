@@ -90,6 +90,7 @@ def make_boleta_electronica(basket, order_total, auth, configuration=default_con
     billing_info = UserBillingInfo.objects.get(basket=basket)
     rut = billing_info.id_number
     # Rut del Receptor. Si no se informa, por regulación, se agrega 66666666-6. (Largo máximo 10, formato 12345678-K)
+    # NOTE: API RUT max length is 10
     if billing_info.id_option != UserBillingInfo.RUT:
         rut = "66666666-6"
 
@@ -110,8 +111,15 @@ def make_boleta_electronica(basket, order_total, auth, configuration=default_con
     # VN es Credito
     # VD es Debito
     # Asume credit
-    itemName = course_product.title.replace('Seat in ','')
-    itemName = itemName[:itemName.find(" with ")]
+    courseTitle = course_product.title.replace('Seat in ','')
+    courseTitle = courseTitle[:courseTitle.find(" with ")]
+
+    # Limit lengths
+    itemDescription = "Certificación por curso de formación en extensión: {}".format(courseTitle)
+    itemDescription = itemDescription[:200]
+
+    itemName = "Certificación: {}".format(courseTitle)
+    itemName = itemName[:80]
 
     # TODO: Sacar todo lo que creemos que es opcional, y hacer busqueda binaria
     data = {
@@ -121,26 +129,26 @@ def make_boleta_electronica(basket, order_total, auth, configuration=default_con
                 "cantidadItem": product_lines[0].quantity,
                 #"centroCosto": configuration["config_centro_costos"],
                 "cuentaContable": configuration["config_cuenta_contable"],
-                "descripcionAdicionalItem": "",
+                "descripcionAdicionalItem": itemDescription,
                 "identificadorProducto": course_product.id,
                 "impuesto": 0.0,
                 "indicadorExencion": 2,  # Servicio no facturable
-                "nombreItem": "Certificación por curso de formación en extensión: {}".format(itemName),
+                "nombreItem": itemName,
                 "precioUnitarioItem": product_lines[0].price_incl_tax,
                 "unidadMedidaItem": "",
             }],
             "indicadorServicio": 3,  # Boletas de venta y servicios
             "receptor": {
-                "apellidoPaterno": billing_info.last_name_1,  
-                "apellidoMaterno": billing_info.last_name_2,  
-                "nombre": billing_info.first_name,
-                "rut": rut
+                "apellidoPaterno": billing_info.last_name_1[:12],
+                "apellidoMaterno": billing_info.last_name_2[:12],
+                "nombre": billing_info.first_name[:40],
+                "rut": rut,
             },
             "referencia": [{  # Opcional para gestion interna
                 "codigoCaja": "eceol",
-                "codigoReferencia": basket.order_number,
+                "codigoReferencia": basket.order_number, # Max length 18
                 "codigoVendedor": "INTERNET",
-                "razonReferencia": "Orden de compra: "+str(course_product.id),
+                "razonReferencia": "Orden de compra: "+str(course_product.id), # Max length 90
             }, ],
             "saldoAnterior": 0,
         },
@@ -163,9 +171,9 @@ def make_boleta_electronica(basket, order_total, auth, configuration=default_con
 
     # Opcional en nuestro caso (Servicio 3) aplica para comuna, direccion, ciudad
     if billing_info.billing_country_iso2 == "CL":
-        data["datosBoleta"]["receptor"]["ciudad"] = billing_info.billing_city
-        data["datosBoleta"]["receptor"]["comuna"] = billing_info.billing_district
-        data["datosBoleta"]["receptor"]["direccion"] = billing_info.billing_address
+        data["datosBoleta"]["receptor"]["ciudad"] = billing_info.billing_city[:20]
+        data["datosBoleta"]["receptor"]["comuna"] = billing_info.billing_district[:20]
+        data["datosBoleta"]["receptor"]["direccion"] = billing_info.billing_address[:70]
 
     try:
         result = requests.post(config_ventas_url + "/ventas",

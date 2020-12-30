@@ -311,13 +311,13 @@ class UserBillingInfo(models.Model):
         (PASSPORT, 'Pasaporte'),
         (OTRO, 'Otros'),
     ]
-    billing_country_iso2 = models.CharField(null=True,max_length=2)
-    billing_city = models.CharField(null=True, max_length=50)
-    billing_district = models.CharField(null=True, max_length=50)
-    billing_address = models.CharField(null=True, max_length=255)
+    billing_country_iso2 = models.CharField(max_length=2)
+    billing_city = models.CharField(max_length=50)
+    billing_district = models.CharField(max_length=50)
+    billing_address = models.CharField(max_length=255)
     id_number = models.CharField(default="66666666-6", max_length=14)
     id_option = models.CharField(choices=ID_TYPES,max_length=1,default=RUT)
-    id_other = models.CharField(null=True,blank=True,max_length=100)
+    id_other = models.CharField(blank=True,max_length=100)
     # We can get the user by looking at the owner
     basket = models.ForeignKey('basket.Basket', verbose_name=_('Basket'),
                             null=True, blank=True, on_delete=models.CASCADE)
