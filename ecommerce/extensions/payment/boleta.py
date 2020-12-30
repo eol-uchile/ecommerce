@@ -3,7 +3,7 @@ import io
 import logging
 from base64 import b64encode
 
-from django.http import FileResponse, JsonResponse, HttpResponse
+from django.http import FileResponse, HttpResponse
 from django.shortcuts import render
 from django.conf import settings
 from django.core.mail import send_mail
@@ -114,12 +114,12 @@ def make_boleta_electronica(basket, order_total, auth, configuration=default_con
     courseTitle = course_product.title.replace('Seat in ','')
     courseTitle = courseTitle[:courseTitle.find(" with ")]
 
-    # Limit lengths
-    itemDescription = "Certificación por curso de formación en extensión: {}".format(courseTitle)
-    itemDescription = itemDescription[:200]
+    itemName = "Certificado: curso de formación en extensión"
 
-    itemName = "Certificación: {}".format(courseTitle)
-    itemName = itemName[:80]
+    # Limit lengths
+    itemDescription = courseTitle
+    itemDescription = itemDescription[:200] # Line max length is 200 but limit is 1000
+
 
     # TODO: Sacar todo lo que creemos que es opcional, y hacer busqueda binaria
     data = {
@@ -141,7 +141,7 @@ def make_boleta_electronica(basket, order_total, auth, configuration=default_con
             "receptor": {
                 "apellidoPaterno": billing_info.last_name_1[:12],
                 "apellidoMaterno": billing_info.last_name_2[:12],
-                "nombre": billing_info.first_name[:40],
+                "nombre": billing_info.first_name[:12],
                 "rut": rut,
             },
             "referencia": [{  # Opcional para gestion interna
@@ -217,17 +217,6 @@ def recover_boleta(request, configuration=default_config):
     Recover boleta PDF from UChile API given the order_number on
     the get params
     """
-    if not request.user.is_authenticated:
-        return JsonResponse({},status=403)
-    user_id = request.user.id
-
-    # Recover boleta info
-    if 'order_number' in request.GET:
-        order_number = request.GET['order_number']
-    else:
-        logger.error("No Order provided to recover_boleta")
-        return JsonResponse({"msg": "no valid order number provided"},status=404)
-
     # Error context
     context = {
         "order_number": order_number,
@@ -235,12 +224,27 @@ def recover_boleta(request, configuration=default_config):
         "payment_support_email": request.site.siteconfiguration.payment_support_email
     }
 
+    if not request.user.is_authenticated:
+        context['msg'] = '¡Debe estar autenticado en el sistema!.'
+        return render(request, "edx/checkout/boleta_error.html",context)
+        
+    user_id = request.user.id
+
+    # Recover boleta info
+    if 'order_number' in request.GET:
+        order_number = request.GET['order_number']
+    else:
+        logger.error("No Order provided to recover_boleta")
+        context['msg'] = '¡Debe proveer un número de orden!.'
+        return render(request, "edx/checkout/boleta_error.html",context)
+
     try:
         order = Order.objects.get(number=order_number)
         boleta = BoletaElectronica.objects.get(basket=order.basket)
-        if boleta.basket.owner != user_id:
+        if boleta.basket.owner.id != user_id:
             logger.error("User does not own the Basket provided to recover_boleta")
-            return JsonResponse({"msg": "User does not own the Basket provided to recover_boleta"},status=403)
+            context['msg'] = 'El usuario no es dueño de la orden solicitada.'
+            return render(request, "edx/checkout/boleta_error.html",context)
     
         # Create buffer and populate
         boleta_auth = authenticate_boleta_electronica(configuration)
