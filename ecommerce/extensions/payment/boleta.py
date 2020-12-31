@@ -143,7 +143,7 @@ def make_boleta_electronica(basket, order_total, auth, configuration=default_con
             "afecta": False, # No afecto a impuestos
             "detalleProductosServicios": [{
                 "cantidadItem": product_lines[0].quantity,
-                #"centroCosto": configuration["config_centro_costos"],
+                "centroCosto": configuration["config_centro_costos"], # Uncommented
                 "cuentaContable": configuration["config_cuenta_contable"],
                 "descripcionAdicionalItem": itemDescription,
                 "identificadorProducto": course_product.id,
@@ -172,10 +172,10 @@ def make_boleta_electronica(basket, order_total, auth, configuration=default_con
             "cuentaCorriente": True,  # Se requiere para anular la venta
             "identificadorPos": configuration["config_identificador_pos"],
             "sucursal": {  # Opcional
-                "codigo": auth["codigoSII"], #configuration["config_sucursal"],
+                "codigo": configuration["config_sucursal"], #auth["codigoSII"], 
                 "comuna": "Santiago",
                 "direccion": "Diagonal Paraguay Nº 257",
-                "reparticion": auth["repCodigo"], #configuration["config_reparticion"],
+                "reparticion": configuration["config_reparticion"], #auth["repCodigo"],
             },
         },
         "recaudaciones": [{
