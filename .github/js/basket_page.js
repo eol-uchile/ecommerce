@@ -623,12 +623,15 @@ define([
         var value = e.target.value;
         var $alternative = $("#bIdAlternative-wrapper");
         var $alternativeInput = $("#bIdAlternative");
+        var $idNumber = $("#bId");
         if (value !== "2") {
           $alternative.addClass("hidden");
           $alternativeInput.removeAttr("required");
+          $idNumber.attr("placeholder", "11111111-1 o Pasaporte");
         } else {
           $alternative.removeClass("hidden");
           $alternativeInput.attr("required", true);
+          $idNumber.attr("placeholder", "Número de documento");
         }
       });
 

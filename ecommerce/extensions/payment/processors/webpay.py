@@ -141,9 +141,7 @@ class Webpay(BasePaymentProcessor):
             id_option=request.data.get("id_option"),
             id_other=request.data.get("id_other"),
             basket=basket,
-            first_name=request.data.get("first_name"),
-            last_name_1=request.data.get("last_name_1"),
-            last_name_2=request.data.get("last_name_2"))
+            names=request.data.get("names"))
         billing_info.save()
 
         return parameters

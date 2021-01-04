@@ -321,11 +321,9 @@ class UserBillingInfo(models.Model):
     # We can get the user by looking at the owner
     basket = models.ForeignKey('basket.Basket', verbose_name=_('Basket'),
                             null=True, blank=True, on_delete=models.CASCADE)
-    first_name = models.CharField(max_length=100)
-    last_name_1 = models.CharField(max_length=255)
-    last_name_2 = models.CharField(max_length=255,blank=True)
+    names = models.CharField(max_length=36)
     boleta = models.ForeignKey(to=BoletaElectronica, on_delete=models.CASCADE,
                             null=True, blank=True, default=None)
 
     def __str__(self):
-        return "Boleta de {} {}".format(self.first_name, self.last_name_1)
+        return "Boleta de {}".format(self.names)

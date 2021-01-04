@@ -7,6 +7,7 @@ from django.http import FileResponse, HttpResponse
 from django.shortcuts import render
 from django.conf import settings
 from django.core.mail import send_mail
+from django.core.cache import cache
 from oscar.core.loading import get_model
 from ecommerce.extensions.payment.models import UserBillingInfo, BoletaElectronica
 
@@ -155,9 +156,9 @@ def make_boleta_electronica(basket, order_total, auth, configuration=default_con
             }],
             "indicadorServicio": 3,  # Boletas de venta y servicios
             "receptor": {
-                "apellidoPaterno": billing_info.last_name_1[:12],
-                "apellidoMaterno": billing_info.last_name_2[:12],
-                "nombre": billing_info.first_name[:12],
+                "nombre": billing_info.names[:12],
+                "apellidoPaterno": billing_info.names[12:24],
+                "apellidoMaterno": billing_info.names[24:36],
                 "rut": rut,
             },
             "referencia": [{  # Opcional para gestion interna
@@ -232,6 +233,8 @@ def recover_boleta(request, configuration=default_config):
     """
     Recover boleta PDF from UChile API given the order_number on
     the get params
+
+    CACHE the Boleta PDF response
     """
     # Error context
     context = {
@@ -267,10 +270,13 @@ def recover_boleta(request, configuration=default_config):
         # Create buffer and populate
         boleta_auth = authenticate_boleta_electronica(configuration)
         config_ventas_url = configuration["config_ventas_url"]
-        file = requests.get(config_ventas_url + '/ventas/{}/boletas/pdf'.format(boleta.voucher_id),
-                        headers={"Authorization": "Bearer " +
-                                 boleta_auth["access_token"]}
-                        )
+
+        # Cache the PDF response
+        pdf_url = '{}/ventas/{}/boletas/pdf'.format(config_ventas_url,boleta.voucher_id)
+        file = cache.get(pdf_url)
+        if file == None:
+            file = requests.get(pdf_url,headers={"Authorization": "Bearer {}".format(boleta_auth["access_token"])})
+            cache.set(pdf_url, file, 60 * settings.BOLETA_CONFIG["pdf_cache"])
         buffer = io.BytesIO(file.content)
         pdfName = 'boleta-{}.pdf'.format(boleta.voucher_id)
 
