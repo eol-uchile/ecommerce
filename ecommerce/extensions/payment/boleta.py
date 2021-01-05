@@ -42,24 +42,30 @@ class BoletaSinFoliosException(Exception):
     def __str__(self):
         return "BOLETA API Error: no hay mas folios"
 
-def make_paragraphs_200(line):
+def make_paragraphs_200(line, order_number):
     """
     Create paragraphs of 200 characters (including \ n)
+    and append a new line with the order_number
     """
+    len_order = len(order_number)
+    append_order_number = "^"+order_number
+
     if len(line) > 200:
         # Max line is 1000 in length
+        # We'll use 4 lines for product description and the final line
+        # will contain the order_number
         # Consider 4 ^ chars
-        remainder = line[:996]
+        remainder = line[:796]
         iterate = len(remainder)//200
         newline = ""
         for i in range(0,iterate):
             newline = newline + remainder[:199] + "^"
             remainder = remainder[199:]
         # final without ^
-        newline = newline+remainder
+        newline = newline+remainder+append_order_number
         return newline
     else:
-        return line
+        return line+append_order_number
 
 def authenticate_boleta_electronica(configuration=default_config):
     """
@@ -136,7 +142,7 @@ def make_boleta_electronica(basket, order_total, auth, configuration=default_con
     itemName = "Certificado: curso de formación en extensión"
 
     # Limit lengths
-    itemDescription = make_paragraphs_200("Curso: {}".format(courseTitle))
+    itemDescription = make_paragraphs_200("Curso: {}".format(courseTitle), basket.order_number)
 
     # TODO: Sacar todo lo que creemos que es opcional, y hacer busqueda binaria
     data = {
