@@ -349,18 +349,18 @@ class EnrollmentCodeCsvView(View):
         if request.user != order.user and not request.user.is_staff:
             raise PermissionDenied
 
-        file_name = 'Enrollment code CSV order num {}'.format(order.number)
+        file_name = 'Cupones de inscripcion CSV orden {}'.format(order.number)
         file_name = '{filename}.csv'.format(filename=slugify(file_name))
 
         response = HttpResponse(content_type='text/csv')
         response['Content-Disposition'] = 'attachment; filename={filename}'.format(filename=file_name)
 
         redeem_url = get_ecommerce_url(reverse('coupons:offer'))
-        voucher_field_names = ('Code', 'Redemption URL', 'Name Of Employee', 'Date Of Distribution', 'Employee Email')
+        voucher_field_names = ('Código', 'URL para obtención', 'Nombre del empleado', 'Fecha de distribución', 'Email de empleado')
         voucher_writer = csv.DictWriter(response, fieldnames=voucher_field_names)
 
         writer = csv.writer(response)
-        writer.writerow(('Order Number:', order.number))
+        writer.writerow(('Número de orden:', order.number))
         writer.writerow([])
 
         order_line_vouchers = OrderLineVouchers.objects.filter(line__order=order)
