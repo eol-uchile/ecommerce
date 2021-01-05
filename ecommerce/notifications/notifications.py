@@ -33,6 +33,7 @@ def send_notification(user, commtype_code, context, site, recipient=None):
         'site_domain': site.domain,
         'platform_name': site.name,
         'tracking_pixel': tracking_pixel,
+        'site_lms': site.siteconfiguration.lms_url_root
     })
 
     try:

@@ -92,6 +92,13 @@ To delete a course:
 - go to the django admin
 - delete the course from courses
 
+## Email notifications
+
+Email is activated via django waffle. Add the following parameter in the waffle admin configuration:
+ENABLE_NOTIFICATIONS
+
+The name of your site will be displayed on the email. Be sure to have a correct website name.
+
 ## Other references
 
 [Install docs](https://github.com/edx/ecommerce/blob/5a3f18f91f36c7af461bfd52e7c21578c62d4912/docs/install_ecommerce.rst#configure-oauth)
