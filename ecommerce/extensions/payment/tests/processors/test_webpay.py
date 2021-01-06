@@ -17,6 +17,7 @@ class WebpayTests(PaymentProcessorTestCaseMixin, TestCase):
 
     boleta_settings = {
         "enabled": True,
+        "generate_on_payment": True,
         "halt_on_boleta_failure": True,
         "client_id": "secret",
         "client_secret": "secret",

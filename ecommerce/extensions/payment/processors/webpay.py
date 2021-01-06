@@ -166,7 +166,7 @@ class Webpay(BasePaymentProcessor):
                 if Order.objects.filter(number=basket.order_number).exists():
                     raise WebpayAlreadyProcessed()
                 
-                if hasattr(settings, 'BOLETA_CONFIG') and settings.BOLETA_CONFIG['enabled']:
+                if hasattr(settings, 'BOLETA_CONFIG') and (settings.BOLETA_CONFIG['enabled'] and settings.BOLETA_CONFIG['generate_on_payment']):
                     # Boleta can be issued using the boleta_emissions commmand
                     # thus we no longer abort payment
                     try:
