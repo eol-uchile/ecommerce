@@ -2,10 +2,11 @@ import logging
 import requests
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
+from django.core.mail import send_mail
 from oscar.core.loading import get_model
 from oscar.apps.partner import strategy
 
-from ecommerce.extensions.payment.models import UserBillingInfo
+from ecommerce.extensions.payment.models import UserBillingInfo, BoletaErrorMessage
 from ecommerce.extensions.payment.boleta import authenticate_boleta_electronica, make_boleta_electronica
 
 Order = get_model('order','Order')
@@ -55,6 +56,22 @@ class Command(BaseCommand):
             except Exception:
                 failed = failed + 1
                 logger.warning("Error while processing boleta for {}".format(info), exc_info=True)
+        if not dry_run:
+            # Check for errors and recover messages
+            error_messages = BoletaErrorMessage.objects.all()
+            if error_messages.count() > 0:
+                message = "Error en boleta:\nEn total {}\n".format(error_messages.count())
+                for m in error_messages:
+                    message = message+"Codigo {}, mensaje {}\n".format(m.code, m.content)
+
+                send_mail(
+                    'Boleta Electronica API Error(s)',
+                    message, None, [settings.BOLETA_CONFIG["team_email"]],
+                    fail_silently=False
+                )
+
+                # All ok, flush messages
+                error_messages.delete()
 
         logger.info("Completed {}, Failed {}, Total {}".format(completed,failed,completed+failed))
         

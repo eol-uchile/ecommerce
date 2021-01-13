@@ -1,15 +1,15 @@
 import requests
 import io
 import logging
+import json
 from base64 import b64encode
 
 from django.http import FileResponse, HttpResponse
 from django.shortcuts import render
 from django.conf import settings
-from django.core.mail import send_mail
 from django.core.cache import cache
 from oscar.core.loading import get_model
-from ecommerce.extensions.payment.models import UserBillingInfo, BoletaElectronica
+from ecommerce.extensions.payment.models import UserBillingInfo, BoletaElectronica, BoletaErrorMessage
 
 logger = logging.getLogger(__name__)
 Order = get_model('order','Order')
@@ -197,25 +197,28 @@ def make_boleta_electronica(basket, order_total, auth, configuration=default_con
         data["datosBoleta"]["receptor"]["ciudad"] = billing_info.billing_city[:20]
         data["datosBoleta"]["receptor"]["comuna"] = billing_info.billing_district[:20]
         data["datosBoleta"]["receptor"]["direccion"] = billing_info.billing_address[:70]
-
+    error_response = None
     try:
         result = requests.post(config_ventas_url + "/ventas",
                                headers=header,
                                json=data,
                                )
-        if ("folio" in result.text) and ("no" in result.text):
-            raise BoletaSinFoliosException()
+        error_response = result
         result.raise_for_status()
     except requests.exceptions.HTTPError as e:
+        # Save response and either the webprocessor
+        # or the management command will consume it
+        error_text = error_response.text
+        try:
+            error_text = json.dumps(error_response.json(),indent=1)
+        except Exception:
+            pass
+        boleta_error_message = BoletaErrorMessage(
+            content=error_text[:255],
+            code=error_response.status_code,
+            order_number=basket.order_number)
+        boleta_error_message.save()
         raise BoletaElectronicaException("http error "+str(e))
-    except BoletaSinFoliosException:
-        # Panic and Send mail 
-        send_mail(
-            'Boleta Electronica API Fatal Error',
-            'No quedan mas folios para la API de boletas electronicas. Panic!', None, ['ing-eol@uchile.cl'],
-            fail_silently=False,
-        )
-        raise BoletaElectronicaException("no more folios")
 
     voucher_id = result.json()['id']
     voucher_url = '{}/ventas/{}/boletas/pdf'.format(

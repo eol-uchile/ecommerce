@@ -7,6 +7,7 @@ from django.core.validators import MinLengthValidator
 from django.db import models
 from django.db.transaction import atomic
 from django.utils.translation import ugettext_lazy as _
+from django.utils import timezone
 from django_extensions.db.models import TimeStampedModel
 from jsonfield import JSONField
 from oscar.apps.payment.abstract_models import AbstractSource
@@ -327,3 +328,9 @@ class UserBillingInfo(models.Model):
 
     def __str__(self):
         return "Boleta de {}".format(self.names)
+
+class BoletaErrorMessage(models.Model):
+    code = models.PositiveSmallIntegerField(default=0)
+    order_number = models.CharField(max_length=20,default="")
+    content = models.CharField(max_length=255)
+    error_at = models.DateTimeField(default=timezone.now)

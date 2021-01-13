@@ -1,4 +1,5 @@
 import responses
+from unittest.mock import patch 
 
 from django.test import override_settings
 from oscar.apps.payment.exceptions import GatewayError, TransactionDeclined
@@ -18,6 +19,7 @@ class WebpayTests(PaymentProcessorTestCaseMixin, TestCase):
     boleta_settings = {
         "enabled": True,
         "generate_on_payment": True,
+        "team_email": "test@test.cl",
         "halt_on_boleta_failure": True,
         "client_id": "secret",
         "client_secret": "secret",
@@ -116,7 +118,9 @@ class WebpayTests(PaymentProcessorTestCaseMixin, TestCase):
 
 
     @responses.activate
-    def test_get_transaction_parameters_webpay_down(self):
+    @patch("django.core.mail.send_mail")
+    def test_get_transaction_parameters_webpay_down(self, mock_send_mail):
+        mock_send_mail.return_value = True
         responses.add(
             method=responses.POST,
             url='http://transbank:5000/process-webpay',
@@ -124,11 +128,14 @@ class WebpayTests(PaymentProcessorTestCaseMixin, TestCase):
         )
         self.request.data = self.billing_info_form
 
-        self.assertRaises(GatewayError, self.processor.get_transaction_parameters,
-            self.basket, self.request)
+        with override_settings(BOLETA_CONFIG=self.boleta_settings):
+            self.assertRaises(GatewayError, self.processor.get_transaction_parameters,
+                self.basket, self.request)
 
     @responses.activate
-    def test_get_transaction_parameters_faulty_response(self):
+    @patch("django.core.mail.send_mail")
+    def test_get_transaction_parameters_faulty_response(self, mock_send_mail):
+        mock_send_mail.return_value = True
         # We test both cases
         responses.add(
             method=responses.POST,
@@ -177,11 +184,14 @@ class WebpayTests(PaymentProcessorTestCaseMixin, TestCase):
                           transaction_details, self.basket)
 
     @responses.activate
-    def test_handle_processor_response_boleta_rut(self):
+    @patch("django.core.mail.send_mail")
+    def test_handle_processor_response_boleta_rut(self, mock_send_mail):
 
         transaction_details = self.get_transaction_details_helper()
 
         self.make_billing_info_helper("0","CL")
+
+        mock_send_mail.return_value = True
 
         with override_settings(BOLETA_CONFIG=self.boleta_settings):
 
@@ -210,11 +220,14 @@ class WebpayTests(PaymentProcessorTestCaseMixin, TestCase):
 
 
     @responses.activate
-    def test_handle_processor_response_boleta_passport(self):
+    @patch("django.core.mail.send_mail")
+    def test_handle_processor_response_boleta_passport(self, mock_send_mail):
 
         transaction_details = self.get_transaction_details_helper()
 
         self.make_billing_info_helper("1","FR")
+
+        mock_send_mail.return_value = True
 
         with override_settings(BOLETA_CONFIG=self.boleta_settings):
 
@@ -242,11 +255,14 @@ class WebpayTests(PaymentProcessorTestCaseMixin, TestCase):
             self.assertEqual(UserBillingInfo.PASSPORT, user_billing_info.id_option)
 
     @responses.activate
-    def test_handle_processor_response_no_boleta_fail_settings(self):
+    @patch("django.core.mail.send_mail")
+    def test_handle_processor_response_no_boleta_fail_settings(self, mock_send_mail):
 
         transaction_details = self.get_transaction_details_helper()
 
         self.make_billing_info_helper("1","US")
+        
+        mock_send_mail.return_value = True
 
         no_fail_settings = self.boleta_settings.copy()
         no_fail_settings["halt_on_boleta_failure"] = False
@@ -276,9 +292,12 @@ class WebpayTests(PaymentProcessorTestCaseMixin, TestCase):
             self.assertEqual(UserBillingInfo.PASSPORT, user_billing_info.id_option)
 
     @responses.activate
-    def test_handle_processor_response_boleta_no_connection(self):
+    @patch("django.core.mail.send_mail")
+    def test_handle_processor_response_boleta_no_connection(self, mock_send_mail):
 
         transaction_details = self.get_transaction_details_helper()
+
+        mock_send_mail.return_value = True
 
         with override_settings(BOLETA_CONFIG=self.boleta_settings):
 
@@ -292,7 +311,9 @@ class WebpayTests(PaymentProcessorTestCaseMixin, TestCase):
                               transaction_details, self.basket)
 
     @responses.activate
-    def test_get_transaction_data(self):
+    @patch("django.core.mail.send_mail")
+    def test_get_transaction_data(self, mock_send_mail):
+        mock_send_mail.return_value = True
 
         transaction_details = self.get_transaction_details_helper()
 
@@ -305,14 +326,17 @@ class WebpayTests(PaymentProcessorTestCaseMixin, TestCase):
         self.assertEqual(transaction_details, response)
 
     @responses.activate
-    def test_get_transaction_data_webpay_down(self):
-        responses.add(
-            method=responses.POST,
-            url='http://transbank:5000/get-transaction',
-            status=500
-        )
-        self.assertRaises(
-            GatewayError, self.processor.get_transaction_data, "token")
+    @patch("django.core.mail.send_mail")
+    def test_get_transaction_data_webpay_down(self, mock_send_mail):
+        mock_send_mail.return_value = True
+        with override_settings(BOLETA_CONFIG=self.boleta_settings):
+            responses.add(  
+                method=responses.POST,
+                url='http://transbank:5000/get-transaction',
+                status=500
+            )
+            self.assertRaises(
+                GatewayError, self.processor.get_transaction_data, "token")
 
     def test_issue_credit(self):
         self.assertRaises(
