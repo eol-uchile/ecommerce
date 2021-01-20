@@ -302,6 +302,9 @@ class BoletaElectronica(models.Model):
     voucher_id = models.CharField(max_length=64)
     receipt_url = models.CharField(max_length=255)
 
+    def __str__(self):
+        return "Boleta {}".format(self.voucher_id)
+
 class UserBillingInfo(models.Model):
 
     RUT = '0'
@@ -322,12 +325,14 @@ class UserBillingInfo(models.Model):
     # We can get the user by looking at the owner
     basket = models.ForeignKey('basket.Basket', verbose_name=_('Basket'),
                             null=True, blank=True, on_delete=models.CASCADE)
-    names = models.CharField(max_length=36)
+    first_name = models.CharField(max_length=12)
+    last_name_1 = models.CharField(max_length=12)
+    last_name_2 = models.CharField(max_length=12,blank=True)
     boleta = models.ForeignKey(to=BoletaElectronica, on_delete=models.CASCADE,
                             null=True, blank=True, default=None)
 
     def __str__(self):
-        return "Boleta de {}".format(self.names)
+        return "Información de boleta de {}".format(self.first_name)
 
 class BoletaErrorMessage(models.Model):
     code = models.PositiveSmallIntegerField(default=0)

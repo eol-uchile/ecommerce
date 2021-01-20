@@ -4,12 +4,12 @@
 
 ### Initial configuration
 ```
-python manage.py create_or_update_site \
+python3 manage.py create_or_update_site \
   --site-id=1 \
-  --site-name=ecommerce.staging.eol.espinoza.dev
+  --site-name=ecommerce.staging.eol.espinoza.dev \
   --site-domain=ecommerce.staging.eol.espinoza.dev \
   --partner-code=eol --partner-name='Eol edX' \
-  --lms-url-root=staging.eol.espinoza.dev \
+  --lms-url-root=https://staging.eol.espinoza.dev \
   --payment-processors=webpay \
   --backend-service-client-id=CHANGE ME \
   --backend-service-client-secret=CHANGE ME \
@@ -43,7 +43,7 @@ This will give you access :)
 
 ### Using the Admin
 
-Some values that should be lookep upon in case of malfunctions:
+Some values that should be looked upon in case of malfunctions:
 - Base cookie domain
 - Discovery API URL: for example https://discovery.staging.eol.espinoza.dev/api/v1
 - Payment support url: https://eol.uchile.cl/faq

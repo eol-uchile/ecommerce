@@ -162,9 +162,9 @@ def make_boleta_electronica(basket, order_total, auth, configuration=default_con
             }],
             "indicadorServicio": 3,  # Boletas de venta y servicios
             "receptor": {
-                "nombre": billing_info.names[:12],
-                "apellidoPaterno": billing_info.names[12:24],
-                "apellidoMaterno": billing_info.names[24:36],
+                "nombre": billing_info.first_name,
+                "apellidoPaterno": billing_info.last_name_1,
+                "apellidoMaterno": billing_info.last_name_2,
                 "rut": rut,
             },
             "referencia": [{  # Opcional para gestion interna

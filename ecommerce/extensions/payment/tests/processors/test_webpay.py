@@ -40,7 +40,9 @@ class WebpayTests(PaymentProcessorTestCaseMixin, TestCase):
             "id_number": "1-9",
             "id_option": "0",
             "id_other": "",
-            "names": "first_name last_name",
+            "first_name": "first_name last_name",
+            "last_name_1": "last_name_1",
+            "last_name_2": "",
         }
 
     def get_transaction_details_helper(self):
@@ -72,7 +74,8 @@ class WebpayTests(PaymentProcessorTestCaseMixin, TestCase):
             id_number="1-9",
             id_option=id_type,
             id_other="",
-            names="name last name",
+            first_name="name name",
+            last_name_1="last name",
             basket=self.basket
         )
         billing_info.save()
