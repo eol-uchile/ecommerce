@@ -45,7 +45,7 @@ class Command(BaseCommand):
                 basket.strategy = strategy.Default()
 
                 if not dry_run:
-                    auth = authenticate_boleta_electronica()
+                    auth = authenticate_boleta_electronica(basket=basket)
                     boleta_id = make_boleta_electronica(basket, basket.total_incl_tax, auth)
                     
                 completed = completed + 1
@@ -60,9 +60,9 @@ class Command(BaseCommand):
             # Check for errors and recover messages
             error_messages = BoletaErrorMessage.objects.all()
             if error_messages.count() > 0:
-                message = "Error en boleta:\nEn total {}\n".format(error_messages.count())
+                message = "Lugar: comando boleta_emissions\nDescripción: Hubieron errores al generar las boletas con el comando boleta_emissions\n\nEn total {} error(es)\n".format(error_messages.count())
                 for m in error_messages:
-                    message = message+"Codigo {}, mensaje {}\n".format(m.code, m.content)
+                    message = message+"Codigo {}, mensaje\n{}\n".format(m.code, m.content)
 
                 send_mail(
                     'Boleta Electronica API Error(s)',

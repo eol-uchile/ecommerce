@@ -67,13 +67,15 @@ def make_paragraphs_200(line, order_number):
     else:
         return line+append_order_number
 
-def authenticate_boleta_electronica(configuration=default_config):
+def authenticate_boleta_electronica(configuration=default_config, basket=None):
     """
     Recover boleta electronica authorization tokens
     given a valid Webpay configuration object
 
     Arguments:
         configuration - settings with keys, scopes, etc
+        basket - Basket object for correct error message setting, if none
+                is provided the error won't associate any order-number
 
     Returns:
       Credentials response with token
@@ -100,10 +102,13 @@ def authenticate_boleta_electronica(configuration=default_config):
             error_text = json.dumps(error_response.json(),indent=1)
         except Exception:
             pass
+        order_number = "unset"
+        if basket is not None:
+            order_number = basket.order_number
         boleta_error_message = BoletaErrorMessage(
             content=error_text[:255],
             code=error_response.status_code,
-            order_number=basket.order_number)
+            order_number=order_number)
         boleta_error_message.save()
         raise BoletaElectronicaException("http error "+str(e))
     return result.json()
