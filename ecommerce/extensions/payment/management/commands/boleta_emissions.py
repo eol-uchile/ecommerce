@@ -52,10 +52,10 @@ class Command(BaseCommand):
                 logger.info("Completed Boleta for order {}, user {}, amount CLP {}".format(order.number,basket.owner.username, order.total_incl_tax))
             except requests.exceptions.ConnectionError:
                 failed = failed + 1
-                logger.warning("Coudn't connect to boleta API for {}".format(info), exc_info=True)
+                logger.warning("Coudn't connect to boleta API for: {}".format(info), exc_info=True)
             except Exception:
                 failed = failed + 1
-                logger.warning("Error while processing boleta for {}".format(info), exc_info=True)
+                logger.warning("Error while processing boleta for: {}".format(info), exc_info=True)
         if not dry_run:
             # Check for errors and recover messages
             error_messages = BoletaErrorMessage.objects.all()

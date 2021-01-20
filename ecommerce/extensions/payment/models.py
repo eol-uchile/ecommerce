@@ -335,7 +335,14 @@ class UserBillingInfo(models.Model):
         return "Información de boleta de {}".format(self.first_name)
 
 class BoletaErrorMessage(models.Model):
+    """
+    The messages are processed by other clases and then disposed off.
+    Normally there should be no messages as they would be sent by email.
+    """
     code = models.PositiveSmallIntegerField(default=0)
     order_number = models.CharField(max_length=20,default="")
     content = models.CharField(max_length=255)
     error_at = models.DateTimeField(default=timezone.now)
+
+    def __str__(self):
+        return "Unsent message with code {}, check the email settings".format(self.code)

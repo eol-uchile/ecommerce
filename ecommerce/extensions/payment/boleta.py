@@ -86,13 +86,25 @@ def authenticate_boleta_electronica(configuration=default_config):
     header = {
         'Authorization': 'Basic ' + b64encode("{}:{}".format(client_id, client_secret).encode()).decode()
     }
+    error_response = None
     try:
         result = requests.post(config_ventas_url + '/authorization-token', headers=header, data={
             'grant_type': "client_credentials",
             'scope': client_scope
         })
+        error_response = result
         result.raise_for_status()
     except requests.exceptions.HTTPError as e:
+        error_text = error_response.text
+        try:
+            error_text = json.dumps(error_response.json(),indent=1)
+        except Exception:
+            pass
+        boleta_error_message = BoletaErrorMessage(
+            content=error_text[:255],
+            code=error_response.status_code,
+            order_number=basket.order_number)
+        boleta_error_message.save()
         raise BoletaElectronicaException("http error "+str(e))
     return result.json()
 
