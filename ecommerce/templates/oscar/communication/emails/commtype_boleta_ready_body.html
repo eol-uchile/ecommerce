@@ -34,7 +34,7 @@
     <td class="footer-padding" style="padding-left: 30px; padding-right: 30px; font-size: 13px; line-height: 20px; font-family: Open Sans, sans-serif; color: #002D40; background-color: #f3f3f3;" align="left">
         <!--footer content -->
         <br>
-        <p>{% filter force_escape %}{% blocktrans with course_title=course_title platform_name=platform_name %}Está recibiendo este correo porque el producto "{{course_title}}" de {{platform_name}}.{% endblocktrans %}{% endfilter %}</p>
+        <p>{% filter force_escape %}{% blocktrans with course_title=course_title platform_name=platform_name %}Está recibiendo este correo porque compró el producto "{{course_title}}" de {{platform_name}}.{% endblocktrans %}{% endfilter %}</p>
         <br>
         <!--/ end footer content -->
     </td>
