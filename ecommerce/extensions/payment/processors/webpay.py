@@ -119,7 +119,7 @@ class Webpay(BasePaymentProcessor):
                 'Webpay Service Error',
                 "Lugar: procesador de pago webpay\nDescripción: El servicio de conexión a Webpay falló con código {}.\nEn caso de error 500 revisar los logs del servicio.\nSi el error es 403 las llaves de autenticación se encuentran mal configuradas.".format(result.status_code),
                 None,
-                [settings.BOLETA_CONFIG["team_email"]],
+                [settings.BOLETA_CONFIG.get("team_email","")],
                 fail_silently=False
             )
             raise GatewayError("Webpay module has failed, error code {}".format(result.status_code))
@@ -177,7 +177,7 @@ class Webpay(BasePaymentProcessor):
                 if Order.objects.filter(number=basket.order_number).exists():
                     raise WebpayAlreadyProcessed()
                 
-                if hasattr(settings, 'BOLETA_CONFIG') and (settings.BOLETA_CONFIG['enabled'] and settings.BOLETA_CONFIG['generate_on_payment']):
+                if hasattr(settings, 'BOLETA_CONFIG') and (settings.BOLETA_CONFIG.get('enabled',False) and settings.BOLETA_CONFIG.get('generate_on_payment',False)):
                     # Boleta can be issued using the boleta_emissions commmand
                     # thus we no longer abort payment
                     try:
@@ -194,10 +194,10 @@ class Webpay(BasePaymentProcessor):
                             'Boleta Electronica API Error(s)',
                             "Lugar: procesador de pago webpay.\nDescripción: No se pudo establecer la conexión a la API de Boleta electronica.\nEl nombre no fue resuelto resultando en una request.exceptions.ConnectTimeout.",
                             None,
-                            [settings.BOLETA_CONFIG["team_email"]],
+                            [settings.BOLETA_CONFIG.get("team_email","")],
                             fail_silently=False
                         )
-                        if settings.BOLETA_CONFIG["halt_on_boleta_failure"]:
+                        if settings.BOLETA_CONFIG.get("halt_on_boleta_failure",False):
                             raise WebpayTransactionDeclined()
                     except BoletaElectronicaException as e:
                         logger.error("BOLETA API HAS FAILED. {}".format(e), exc_info=True)
@@ -207,13 +207,13 @@ class Webpay(BasePaymentProcessor):
                                 'Boleta Electronica API Error(s)',
                                 "Lugar: procesador de pago webpay.\nDescripción: Hubo un error al obtener la boleta {}.\n\nCodigo de respuesta {}, mensaje {}".format(basket.order_number,boleta_error_message.code,boleta_error_message.content),
                                 None,
-                                [settings.BOLETA_CONFIG["team_email"]],
+                                [settings.BOLETA_CONFIG.get("team_email","")],
                                 fail_silently=False
                             )
                             boleta_error_message.delete()
                         except BoletaErrorMessage.DoesNotExist:
                             logger.error("Couldn't find order error message, email not sent.")
-                        if settings.BOLETA_CONFIG["halt_on_boleta_failure"]:
+                        if settings.BOLETA_CONFIG.get("halt_on_boleta_failure",False):
                             raise WebpayTransactionDeclined()
                     except Exception as e:
                         logger.error("BOLETA API had an unexpected error? {}".format(e), exc_info=True)
@@ -221,10 +221,10 @@ class Webpay(BasePaymentProcessor):
                             'Boleta Electronica API Error(s)',
                             "Lugar: procesador de pago webpay.\nDescripción: Hubo un error inesperado al obtener una boleta.\n\nError{}".format(traceback.format_exc()),
                             None,
-                            [settings.BOLETA_CONFIG["team_email"]],
+                            [settings.BOLETA_CONFIG.get("team_email","")],
                             fail_silently=False
                         )
-                        if settings.BOLETA_CONFIG["halt_on_boleta_failure"]:
+                        if settings.BOLETA_CONFIG.get("halt_on_boleta_failure",False):
                             raise WebpayTransactionDeclined()
 
                 return HandledProcessorResponse(
@@ -258,7 +258,7 @@ class Webpay(BasePaymentProcessor):
                 'Webpay Service Error',
                 "El servicio de conexión a Webpay falló con código {}.\nEn caso de error 500 revisar los logs del servicio.\nSi el error es 403 las llaves de autenticación se encuentran mal configuradas.".format(result.status_code),
                 None,
-                [settings.BOLETA_CONFIG["team_email"]],
+                [settings.BOLETA_CONFIG.get("team_email","")],
                 fail_silently=False
             )
             raise GatewayError("Webpay Module is not ready, error code {}".format(result.status_code))

@@ -2,6 +2,7 @@ import requests
 import io
 import logging
 import json
+import waffle
 from base64 import b64encode
 
 from django.http import FileResponse, HttpResponse
@@ -253,7 +254,8 @@ def make_boleta_electronica(basket, order_total, auth, configuration=default_con
         error_response = result
         result.raise_for_status()
 
-        send_boleta_email(basket)
+        if waffle.switch_is_active('ENABLE_NOTIFICATIONS') and settings.BOLETA_CONFIG.get("send_boleta_email",True):
+            send_boleta_email(basket)
 
     except requests.exceptions.HTTPError as e:
         # Save response and either the webprocessor
@@ -335,7 +337,7 @@ def recover_boleta(request, configuration=default_config):
         file = cache.get(pdf_url)
         if file == None:
             file = requests.get(pdf_url,headers={"Authorization": "Bearer {}".format(boleta_auth["access_token"])})
-            cache.set(pdf_url, file, 60 * settings.BOLETA_CONFIG["pdf_cache"])
+            cache.set(pdf_url, file, 60 * settings.BOLETA_CONFIG.get("pdf_cache",10))
         buffer = io.BytesIO(file.content)
         pdfName = 'boleta-{}.pdf'.format(boleta.voucher_id)
 

@@ -177,7 +177,7 @@ class ReceiptResponseView(ThankYouView):
                 self.add_message_if_enterprise_user(request, enterprise_customer, learner_portal_url)
                 response.context_data['order_dashboard_url'] = learner_portal_url
             if hasattr(settings, 'BOLETA_CONFIG'):
-                response.context_data['boleta'] = settings.BOLETA_CONFIG['enabled']
+                response.context_data['boleta'] = settings.BOLETA_CONFIG.get('enabled',False)
                 basket = Order.objects.get(number=request.GET.get("order_number")).basket
                 boletas = BoletaElectronica.objects.filter(basket=basket)
                 if len(boletas) == 1:

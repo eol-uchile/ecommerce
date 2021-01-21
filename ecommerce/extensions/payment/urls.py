@@ -50,5 +50,5 @@ for payment_processor_name, urls_module in settings.EXTRA_PAYMENT_PROCESSOR_URLS
     processor_url = url(r'^{}/'.format(payment_processor_name), include((urls_module, payment_processor_name)))
     urlpatterns.append(processor_url)
 
-if hasattr(settings, 'BOLETA_CONFIG') and settings.BOLETA_CONFIG['enabled']:
+if hasattr(settings, 'BOLETA_CONFIG') and settings.BOLETA_CONFIG.get('enabled',False):
     urlpatterns += [url(r'^boleta/', recover_boleta, name='recover_boleta')]

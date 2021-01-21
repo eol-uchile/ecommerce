@@ -66,7 +66,7 @@ class Command(BaseCommand):
 
                 send_mail(
                     'Boleta Electronica API Error(s)',
-                    message, None, [settings.BOLETA_CONFIG["team_email"]],
+                    message, None, [settings.BOLETA_CONFIG.get("team_email","")],
                     fail_silently=False
                 )
 
