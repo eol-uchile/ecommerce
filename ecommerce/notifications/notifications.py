@@ -38,6 +38,7 @@ def send_notification(user, commtype_code, context, site, recipient=None):
         'platform_name': site.name,
         'tracking_pixel': tracking_pixel,
         'site_lms': site.siteconfiguration.lms_url_root,
+        'site_dashboard': site.siteconfiguration.lms_url_root+"/dashboard",
         'theme_logo': "https://{}/static/{}/images/default_logo.png".format(site.domain,siteTheme.theme_dir_name),
     })
 

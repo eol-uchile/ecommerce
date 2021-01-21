@@ -10,6 +10,8 @@ from django.conf import settings
 from django.core.cache import cache
 from oscar.core.loading import get_model
 from ecommerce.extensions.payment.models import UserBillingInfo, BoletaElectronica, BoletaErrorMessage
+from ecommerce.extensions.checkout.utils import get_receipt_page_url
+from ecommerce.notifications.notifications import send_notification
 
 logger = logging.getLogger(__name__)
 Order = get_model('order','Order')
@@ -112,6 +114,34 @@ def authenticate_boleta_electronica(configuration=default_config, basket=None):
         boleta_error_message.save()
         raise BoletaElectronicaException("http error "+str(e))
     return result.json()
+
+def send_boleta_email(basket):
+    """
+    Send notification signal to ecommerce/notifications/notifications.py
+    to send boleta notification template with code BOLETA_READY
+    """
+    try:
+        order = Order.objects.get(basket=basket)
+
+        product = order.lines.first().product
+        receipt_page_url = get_receipt_page_url(
+                    order_number=order.number,
+                    site_configuration=order.site.siteconfiguration
+                )
+        recipient = order.user.email
+
+        send_notification(
+            order.user,
+            'BOLETA_READY',
+            {
+                'course_title': product.title,
+                'receipt_page_url': receipt_page_url,
+            },
+            order.site,
+            recipient
+        )
+    except Exception:
+        logger.error("Couldn't send boleta email notification")
 
 
 def make_boleta_electronica(basket, order_total, auth, configuration=default_config):
@@ -222,6 +252,9 @@ def make_boleta_electronica(basket, order_total, auth, configuration=default_con
                                )
         error_response = result
         result.raise_for_status()
+
+        send_boleta_email(basket)
+
     except requests.exceptions.HTTPError as e:
         # Save response and either the webprocessor
         # or the management command will consume it
