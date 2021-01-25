@@ -1,9 +1,11 @@
 """ Views for interacting with the payment processor. """
 import logging
 import os
+import waffle
 from io import StringIO
 from six.moves.urllib.parse import urlencode
 
+from django.conf import settings
 from django.core.exceptions import MultipleObjectsReturned
 from django.core.management import call_command
 from django.db import transaction
@@ -139,8 +141,10 @@ class WebpayPaymentNotificationView(EdxOrderPlacementMixin, View):
             )
             self.handle_post_order(order)
 
-            # Order is created; then send email
-            send_boleta_email(basket)
+            # Order is created; then send email if enabled
+            boleta_active = hasattr(settings, 'BOLETA_CONFIG') and settings.BOLETA_CONFIG.get("enabled",False)
+            if (waffle.switch_is_active('ENABLE_NOTIFICATIONS') and boleta_active) and settings.BOLETA_CONFIG.get("send_boleta_email",True):
+                send_boleta_email(basket)
 
             return HttpResponse(WEBPAY_REDIRECT.format(url=payment['urlRedirection'], token=token))
         except Exception as e:  # pylint: disable=broad-except

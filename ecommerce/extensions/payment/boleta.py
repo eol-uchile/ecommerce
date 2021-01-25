@@ -145,7 +145,7 @@ def send_boleta_email(basket):
         logger.error("Couldn't send boleta email notification")
 
 
-def make_boleta_electronica(basket, order_total, auth, configuration=default_config, send_mail=False):
+def make_boleta_electronica(basket, order_total, auth, configuration=default_config):
     """
     Recover billing information and create a new boleta
     from the UChile API. Finally register info to BoletaElectronica
@@ -253,12 +253,6 @@ def make_boleta_electronica(basket, order_total, auth, configuration=default_con
                                )
         error_response = result
         result.raise_for_status()
-
-        # The handle_processor_response call
-        # is done before completing the order.
-        # Thus the send_boleta_email must me called after.
-        if waffle.switch_is_active('ENABLE_NOTIFICATIONS') and settings.BOLETA_CONFIG.get("send_boleta_email",True) and send_mail:
-            send_boleta_email(basket)
 
     except requests.exceptions.HTTPError as e:
         # Save response and either the webprocessor

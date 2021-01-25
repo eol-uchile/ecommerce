@@ -1,5 +1,6 @@
 import logging
 import requests
+import waffle
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 from django.core.mail import send_mail
@@ -7,7 +8,7 @@ from oscar.core.loading import get_model
 from oscar.apps.partner import strategy
 
 from ecommerce.extensions.payment.models import UserBillingInfo, BoletaErrorMessage
-from ecommerce.extensions.payment.boleta import authenticate_boleta_electronica, make_boleta_electronica
+from ecommerce.extensions.payment.boleta import authenticate_boleta_electronica, make_boleta_electronica, send_boleta_email
 
 Order = get_model('order','Order')
 logger = logging.getLogger(__name__)
@@ -20,6 +21,11 @@ class Command(BaseCommand):
         parser.add_argument("--dry-run", help="Run without applying changes", action='store_true')
 
     def handle(self, *args, **options):
+
+        boleta_active = hasattr(settings, 'BOLETA_CONFIG') and settings.BOLETA_CONFIG.get("enabled",False)
+        if not boleta_active:
+            logger.error("BOLETA_CONFIG is not set or enabled, enable it on your settings to run this commmand")
+            return
 
         dry_run = False
         if options["dry_run"]:
@@ -46,7 +52,9 @@ class Command(BaseCommand):
 
                 if not dry_run:
                     auth = authenticate_boleta_electronica(basket=basket)
-                    boleta_id = make_boleta_electronica(basket, basket.total_incl_tax, auth, send_mail=True)
+                    boleta_id = make_boleta_electronica(basket, basket.total_incl_tax, auth)
+                    if waffle.switch_is_active('ENABLE_NOTIFICATIONS') and settings.BOLETA_CONFIG.get("send_boleta_email",True):
+                        send_boleta_email(basket)
                     
                 completed = completed + 1
                 logger.info("Completed Boleta for order {}, user {}, amount CLP {}".format(order.number,basket.owner.username, order.total_incl_tax))
