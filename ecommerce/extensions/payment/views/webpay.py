@@ -143,7 +143,7 @@ class WebpayPaymentNotificationView(EdxOrderPlacementMixin, View):
 
             # Order is created; then send email if enabled
             boleta_active = hasattr(settings, 'BOLETA_CONFIG') and settings.BOLETA_CONFIG.get("enabled",False)
-            if (waffle.switch_is_active('ENABLE_NOTIFICATIONS') and boleta_active) and settings.BOLETA_CONFIG.get("send_boleta_email",True):
+            if (waffle.switch_is_active('ENABLE_NOTIFICATIONS') and boleta_active) and (settings.BOLETA_CONFIG.get("generate_on_payment",False) and settings.BOLETA_CONFIG.get("send_boleta_email",True)):
                 send_boleta_email(basket)
 
             return HttpResponse(WEBPAY_REDIRECT.format(url=payment['urlRedirection'], token=token))
