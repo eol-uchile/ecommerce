@@ -18,6 +18,8 @@ logger = logging.getLogger(__name__)
 Order = get_model('order','Order')
 default_config = {
     "enabled": False,
+    "generate_on_payment": False,
+    "send_boleta_email": False,
     "client_id": "secret",
     "client_secret": "secret",
     "client_scope": "dte:tdo",
@@ -116,6 +118,7 @@ def authenticate_boleta_electronica(configuration=default_config, basket=None):
         raise BoletaElectronicaException("http error "+str(e))
     return result.json()
 
+
 def send_boleta_email(basket):
     """
     Send notification signal to ecommerce/notifications/notifications.py
@@ -145,14 +148,14 @@ def send_boleta_email(basket):
         logger.error("Couldn't send boleta email notification")
 
 
-def make_boleta_electronica(basket, order_total, auth, configuration=default_config):
+def make_boleta_electronica(basket, order, auth, configuration=default_config):
     """
     Recover billing information and create a new boleta
     from the UChile API. Finally register info to BoletaElectronica
 
     Arguments:
       basket - basket with line(and products) info, owner(user)
-      order_total - total payed by client
+      order - completed order
       auth - authorization response from the UChile API
       configuration - configuration file from a webpay payment processor
     Returns:
@@ -184,15 +187,21 @@ def make_boleta_electronica(basket, order_total, auth, configuration=default_con
     # VN es Credito
     # VD es Debito
     # Asume credit
-    courseTitle = course_product.title.replace('Seat in ','')
-    courseTitle = courseTitle[:courseTitle.find(" with ")]
+    courseTitle = course_product.title
 
     itemName = "Certificado: curso de formación en extensión"
 
     # Limit lengths
     itemDescription = make_paragraphs_200("Curso: {}".format(courseTitle), basket.order_number)
 
-    # TODO: Sacar todo lo que creemos que es opcional, y hacer busqueda binaria
+    # DISCLAIMER:
+    # Currently discounts can only be between 1-99% of price
+    # and only applied when purchasing a SINGLE PRODUCT.
+    # Get price if discount is applied
+    unitPrice = product_lines[0].price_incl_tax
+    if order.total_discount_incl_tax != 0 and product_lines[0].quantity == 1:
+        unitPrice = order.total_incl_tax
+
     data = {
         "datosBoleta": {
             "afecta": False, # No afecto a impuestos
@@ -205,7 +214,7 @@ def make_boleta_electronica(basket, order_total, auth, configuration=default_con
                 "impuesto": 0.0,
                 "indicadorExencion": 2,  # Servicio no facturable
                 "nombreItem": itemName,
-                "precioUnitarioItem": product_lines[0].price_incl_tax,
+                "precioUnitarioItem": unitPrice,
                 "unidadMedidaItem": "",
             }],
             "indicadorServicio": 3,  # Boletas de venta y servicios
@@ -234,7 +243,7 @@ def make_boleta_electronica(basket, order_total, auth, configuration=default_con
             },
         },
         "recaudaciones": [{
-            "monto": order_total,
+            "monto": order.total_incl_tax,
             "tipoPago": "Tarjeta de Crédito",  # Efectivo | Debito | Tarjeta de Crédito
             "voucher": basket.order_number, # numero para gestion interna de transacciones
         }],
@@ -245,6 +254,7 @@ def make_boleta_electronica(basket, order_total, auth, configuration=default_con
         data["datosBoleta"]["receptor"]["ciudad"] = billing_info.billing_city[:20]
         data["datosBoleta"]["receptor"]["comuna"] = billing_info.billing_district[:20]
         data["datosBoleta"]["receptor"]["direccion"] = billing_info.billing_address[:70]
+
     error_response = None
     try:
         result = requests.post(config_ventas_url + "/ventas",
@@ -253,6 +263,7 @@ def make_boleta_electronica(basket, order_total, auth, configuration=default_con
                                )
         error_response = result
         result.raise_for_status()
+
 
     except requests.exceptions.HTTPError as e:
         # Save response and either the webprocessor
@@ -279,6 +290,9 @@ def make_boleta_electronica(basket, order_total, auth, configuration=default_con
 
     billing_info.boleta = boleta
     billing_info.save()
+
+    if settings.BOLETA_CONFIG.get("send_boleta_email",False):
+        send_boleta_email(basket=basket)
 
     return {
         'id': voucher_id,

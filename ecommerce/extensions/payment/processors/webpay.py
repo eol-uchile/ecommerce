@@ -178,58 +178,6 @@ class Webpay(BasePaymentProcessor):
                 if Order.objects.filter(number=basket.order_number).exists():
                     raise WebpayAlreadyProcessed()
                 
-                if hasattr(settings, 'BOLETA_CONFIG') and (settings.BOLETA_CONFIG.get('enabled',False) and settings.BOLETA_CONFIG.get('generate_on_payment',False)):
-                    # Boleta can be issued using the boleta_emissions commmand
-                    # thus we no longer abort payment
-                    site = basket.site
-                    error_mail_footer = "\nOriginado en {} con partner {}".format(site.domain,site.siteconfiguration.lms_url_root)
-                    try:
-                        # DATA FLOW FROM WEBPAY TO BOLETA ELECTRONICA
-                        boleta_auth = authenticate_boleta_electronica(basket=basket)
-                        boleta_id = make_boleta_electronica(
-                            basket,
-                            basket.total_incl_tax,
-                            boleta_auth
-                        )
-                    except requests.exceptions.ConnectTimeout:
-                        logger.error("BOLETA API couldn't connect. {}".format(e))
-                        send_mail(
-                            'Boleta Electronica API Error(s)',
-                            "Lugar: procesador de pago webpay.\nDescripción: No se pudo establecer la conexión a la API de Boleta electronica.\nEl nombre no fue resuelto resultando en una request.exceptions.ConnectTimeout.\n"+error_mail_footer,
-                            settings.BOLETA_CONFIG.get("from_email",None),
-                            [settings.BOLETA_CONFIG.get("team_email","")],
-                            fail_silently=False
-                        )
-                        if settings.BOLETA_CONFIG.get("halt_on_boleta_failure",False):
-                            raise WebpayTransactionDeclined()
-                    except BoletaElectronicaException as e:
-                        logger.error("BOLETA API HAS FAILED. {}".format(e), exc_info=True)
-                        try:
-                            boleta_error_message = BoletaErrorMessage.objects.get(order_number=basket.order_number)
-                            send_mail(
-                                'Boleta Electronica API Error(s)',
-                                "Lugar: procesador de pago webpay.\nDescripción: Hubo un error al obtener la boleta {}.\n\nCodigo de respuesta {}, mensaje {}\n{}".format(basket.order_number,boleta_error_message.code,boleta_error_message.content, error_mail_footer),
-                                settings.BOLETA_CONFIG.get("from_email",None),
-                                [settings.BOLETA_CONFIG.get("team_email","")],
-                                fail_silently=False
-                            )
-                            boleta_error_message.delete()
-                        except BoletaErrorMessage.DoesNotExist:
-                            logger.error("Couldn't find order error message, email not sent.")
-                        if settings.BOLETA_CONFIG.get("halt_on_boleta_failure",False):
-                            raise WebpayTransactionDeclined()
-                    except Exception as e:
-                        logger.error("BOLETA API had an unexpected error? {}".format(e), exc_info=True)
-                        send_mail(
-                            'Boleta Electronica API Error(s)',
-                            "Lugar: procesador de pago webpay.\nDescripción: Hubo un error inesperado al obtener una boleta.\n\nError{}\n{}".format(traceback.format_exc(), error_mail_footer),
-                            settings.BOLETA_CONFIG.get("from_email",None),
-                            [settings.BOLETA_CONFIG.get("team_email","")],
-                            fail_silently=False
-                        )
-                        if settings.BOLETA_CONFIG.get("halt_on_boleta_failure",False):
-                            raise WebpayTransactionDeclined()
-
                 return HandledProcessorResponse(
                     transaction_id=basket.order_number,
                     total=basket.total_incl_tax, 
@@ -245,6 +193,69 @@ class Webpay(BasePaymentProcessor):
             raise WebpayTransactionDeclined()
         logger.error("Transaction [{}] for basket [{}] not done or with invalid amount.\n {}".format(basket.order_number, basket.id, response))
         raise GatewayError("Transaction not ready")
+
+    def boleta_emission(self, basket, order):
+        """
+        Create boleta using Ventas API. Send email if enabled.
+
+        Arguments:
+            basket: basket with unit prices
+            order: completed order with prices and discounts
+        Raises:
+            WebpayTransactionDeclined
+        """
+        if hasattr(settings, 'BOLETA_CONFIG') and (settings.BOLETA_CONFIG.get('enabled',False) and settings.BOLETA_CONFIG.get('generate_on_payment',False)):
+            # Boleta can be issued using the boleta_emissions commmand
+            # thus we no longer abort payment
+            site = basket.site
+            error_mail_footer = "\nOriginado en {} con partner {}".format(site.domain,site.siteconfiguration.lms_url_root)
+            try:
+                # DATA FLOW FROM WEBPAY TO BOLETA ELECTRONICA
+                boleta_auth = authenticate_boleta_electronica(basket=basket)
+                boleta_id = make_boleta_electronica(
+                    basket,
+                    order,
+                    boleta_auth
+                )
+            except requests.exceptions.ConnectTimeout:
+                logger.error("BOLETA API couldn't connect. {}".format(e))
+                send_mail(
+                    'Boleta Electronica API Error(s)',
+                    "Lugar: procesador de pago webpay.\nDescripción: No se pudo establecer la conexión a la API de Boleta electronica.\nEl nombre no fue resuelto resultando en una request.exceptions.ConnectTimeout.\n"+error_mail_footer,
+                    settings.BOLETA_CONFIG.get("from_email",None),
+                    [settings.BOLETA_CONFIG.get("team_email","")],
+                    fail_silently=False
+                )
+                if settings.BOLETA_CONFIG.get("halt_on_boleta_failure",False):
+                    raise WebpayTransactionDeclined()
+            except BoletaElectronicaException as e:
+                logger.error("BOLETA API HAS FAILED. {}".format(e), exc_info=True)
+                try:
+                    boleta_error_message = BoletaErrorMessage.objects.get(order_number=basket.order_number)
+                    send_mail(
+                        'Boleta Electronica API Error(s)',
+                        "Lugar: procesador de pago webpay.\nDescripción: Hubo un error al obtener la boleta {}.\n\nCodigo de respuesta {}, mensaje {}\n{}".format(basket.order_number,boleta_error_message.code,boleta_error_message.content, error_mail_footer),
+                        settings.BOLETA_CONFIG.get("from_email",None),
+                        [settings.BOLETA_CONFIG.get("team_email","")],
+                        fail_silently=False
+                    )
+                    boleta_error_message.delete()
+                except BoletaErrorMessage.DoesNotExist:
+                    logger.error("Couldn't find order error message, email not sent.")
+                if settings.BOLETA_CONFIG.get("halt_on_boleta_failure",False):
+                    raise WebpayTransactionDeclined()
+            except Exception as e:
+                logger.error("BOLETA API had an unexpected error? {}".format(e), exc_info=True)
+                send_mail(
+                    'Boleta Electronica API Error(s)',
+                    "Lugar: procesador de pago webpay.\nDescripción: Hubo un error inesperado al obtener una boleta.\n\nError{}\n{}".format(traceback.format_exc(), error_mail_footer),
+                    settings.BOLETA_CONFIG.get("from_email",None),
+                    [settings.BOLETA_CONFIG.get("team_email","")],
+                    fail_silently=False
+                )
+                if settings.BOLETA_CONFIG.get("halt_on_boleta_failure",False):
+                    raise WebpayTransactionDeclined()
+
 
     def issue_credit(self, order_number, basket, reference_number, amount, currency):
         raise NotImplementedError

@@ -1,7 +1,6 @@
 """ Views for interacting with the payment processor. """
 import logging
 import os
-import waffle
 from io import StringIO
 from six.moves.urllib.parse import urlencode
 
@@ -24,7 +23,6 @@ from ecommerce.extensions.basket.utils import basket_add_organization_attribute
 from ecommerce.extensions.checkout.mixins import EdxOrderPlacementMixin
 from ecommerce.extensions.checkout.utils import get_receipt_page_url
 from ecommerce.extensions.payment.processors.webpay import Webpay, WebpayAlreadyProcessed, WebpayTransactionDeclined
-from ecommerce.extensions.payment.boleta import send_boleta_email
 
 logger = logging.getLogger(__name__)
 
@@ -142,9 +140,7 @@ class WebpayPaymentNotificationView(EdxOrderPlacementMixin, View):
             self.handle_post_order(order)
 
             # Order is created; then send email if enabled
-            boleta_active = hasattr(settings, 'BOLETA_CONFIG') and settings.BOLETA_CONFIG.get("enabled",False)
-            if (waffle.switch_is_active('ENABLE_NOTIFICATIONS') and boleta_active) and (settings.BOLETA_CONFIG.get("generate_on_payment",False) and settings.BOLETA_CONFIG.get("send_boleta_email",True)):
-                send_boleta_email(basket)
+            self.payment_processor.boleta_emission(basket, order)
 
             return HttpResponse(WEBPAY_REDIRECT.format(url=payment['urlRedirection'], token=token))
         except Exception as e:  # pylint: disable=broad-except

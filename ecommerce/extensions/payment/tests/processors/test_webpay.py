@@ -1,14 +1,16 @@
 import responses
+import requests
 from unittest.mock import patch 
 
 from django.test import override_settings
 from oscar.apps.payment.exceptions import GatewayError, TransactionDeclined
 from ecommerce.tests.testcases import TestCase
+from ecommerce.extensions.test.factories import create_order
 from ecommerce.extensions.payment.exceptions import PartialAuthorizationError
 from ecommerce.extensions.payment.processors.webpay import Webpay, WebpayTransactionDeclined
 from ecommerce.extensions.payment.tests.processors.mixins import PaymentProcessorTestCaseMixin
-from ecommerce.extensions.payment.models import UserBillingInfo
-
+from ecommerce.extensions.payment.models import UserBillingInfo, BoletaErrorMessage
+from ecommerce.extensions.payment.boleta import BoletaElectronicaException
 
 class WebpayTests(PaymentProcessorTestCaseMixin, TestCase):
     """Tests for the webpay payment processor."""
@@ -18,6 +20,7 @@ class WebpayTests(PaymentProcessorTestCaseMixin, TestCase):
 
     boleta_settings = {
         "enabled": True,
+        "send_boleta_email": False,
         "generate_on_payment": True,
         "team_email": "test@test.cl",
         "halt_on_boleta_failure": True,
@@ -33,17 +36,17 @@ class WebpayTests(PaymentProcessorTestCaseMixin, TestCase):
     }
 
     billing_info_form = {
-            "billing_district": "district",
-            "billing_city": "city",
-            "billing_address": "address",
-            "billing_country": "CL",
-            "id_number": "1-9",
-            "id_option": "0",
-            "id_other": "",
-            "first_name": "first_name last_name",
-            "last_name_1": "last_name_1",
-            "last_name_2": "",
-        }
+        "billing_district": "district",
+        "billing_city": "city",
+        "billing_address": "address",
+        "billing_country": "CL",
+        "id_number": "1-9",
+        "id_option": "0",
+        "id_other": "",
+        "first_name": "first_name last_name",
+        "last_name_1": "last_name_1",
+        "last_name_2": "",
+    }
 
     def get_transaction_details_helper(self):
         """Helper function"""
@@ -188,130 +191,101 @@ class WebpayTests(PaymentProcessorTestCaseMixin, TestCase):
 
     @responses.activate
     @patch("django.core.mail.send_mail")
-    def test_handle_processor_response_boleta_rut(self, mock_send_mail):
+    def test_get_transaction_data(self, mock_send_mail):
+        mock_send_mail.return_value = True
 
         transaction_details = self.get_transaction_details_helper()
 
-        self.make_billing_info_helper("0","CL")
+        responses.add(
+            method=responses.POST,
+            url='http://transbank:5000/get-transaction',
+            json=transaction_details
+        )
+        response = self.processor.get_transaction_data("token")
+        self.assertEqual(transaction_details, response)
 
+    @responses.activate
+    @patch("django.core.mail.send_mail")
+    def test_get_transaction_data_webpay_down(self, mock_send_mail):
+        mock_send_mail.return_value = True
+        with override_settings(BOLETA_CONFIG=self.boleta_settings):
+            responses.add(  
+                method=responses.POST,
+                url='http://transbank:5000/get-transaction',
+                status=500
+            )
+            self.assertRaises(
+                GatewayError, self.processor.get_transaction_data, "token")
+
+    def test_boleta_emission_disabled(self):    
+        self.processor.boleta_emission(self.basket, create_order(basket=self.basket))
+
+
+    @patch("django.core.mail.send_mail")
+    @patch("ecommerce.extensions.payment.boleta.authenticate_boleta_electronica")
+    def test_boleta_emission_fail_connection_auth(self, mock_send_mail, mock_auth):
         mock_send_mail.return_value = True
 
         with override_settings(BOLETA_CONFIG=self.boleta_settings):
 
-            responses.add(
-                method=responses.POST,
-                url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/authorization-token',
-                json={"access_token": "test", "codigoSII": "codigo sucursal", "repCodigo": "codigo reparticion"}
-            )
+            # Create order and make boleta
+            order = create_order(basket=self.basket)
+            
+            mock_auth.side_effect = requests.exceptions.ConnectTimeout
 
-            responses.add(
-                method=responses.POST,
-                url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/ventas',
-                json={"id": "test"}
-            )
-
-            handled_response = self.processor.handle_processor_response(
-                transaction_details, self.basket)
-            self.assertEqual(handled_response.total,
-                             transaction_details["detailOutput"][0]["amount"])
-            self.assertEqual(handled_response.transaction_id,
-                             transaction_details["detailOutput"][0]["buyOrder"])
-            # Check that billing info was saved
-            user_billing_info = UserBillingInfo.objects.get(basket=self.basket)
-            self.assertIsNotNone(user_billing_info.boleta)
-            self.assertEqual(UserBillingInfo.RUT, user_billing_info.id_option)
+            self.assertRaises(WebpayTransactionDeclined, self.processor.boleta_emission, self.basket, order)
 
 
-    @responses.activate
     @patch("django.core.mail.send_mail")
-    def test_handle_processor_response_boleta_passport(self, mock_send_mail):
-
-        transaction_details = self.get_transaction_details_helper()
-
-        self.make_billing_info_helper("1","FR")
-
+    @patch("ecommerce.extensions.payment.boleta.authenticate_boleta_electronica")
+    @patch("ecommerce.extensions.payment.boleta.make_boleta_electronica")
+    def test_boleta_emission_fail_connection_post(self, mock_send_mail, mock_auth, mock_boleta):
         mock_send_mail.return_value = True
 
         with override_settings(BOLETA_CONFIG=self.boleta_settings):
 
-            responses.add(
-                method=responses.POST,
-                url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/authorization-token',
-                json={"access_token": "test", "codigoSII": "codigo sucursal", "repCodigo": "codigo reparticion"}
-            )
+            # Create order and make boleta
+            order = create_order(basket=self.basket)
+            
+            mock_auth.return_value = True
+            mock_boleta.side_effect = requests.exceptions.ConnectTimeout
 
-            responses.add(
-                method=responses.POST,
-                url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/ventas',
-                json={"id": "test"}
-            )
+            self.assertRaises(WebpayTransactionDeclined, self.processor.boleta_emission, self.basket, order)
 
-            handled_response = self.processor.handle_processor_response(
-                transaction_details, self.basket)
-            self.assertEqual(handled_response.total,
-                             transaction_details["detailOutput"][0]["amount"])
-            self.assertEqual(handled_response.transaction_id,
-                             transaction_details["detailOutput"][0]["buyOrder"])
-            # Check that billing info was saved
-            user_billing_info = UserBillingInfo.objects.get(basket=self.basket)
-            self.assertIsNotNone(user_billing_info.boleta)
-            self.assertEqual(UserBillingInfo.PASSPORT, user_billing_info.id_option)
-
-    @responses.activate
     @patch("django.core.mail.send_mail")
-    def test_handle_processor_response_no_boleta_fail_settings(self, mock_send_mail):
-
-        transaction_details = self.get_transaction_details_helper()
-
-        self.make_billing_info_helper("1","US")
-        
-        mock_send_mail.return_value = True
-
-        no_fail_settings = self.boleta_settings.copy()
-        no_fail_settings["halt_on_boleta_failure"] = False
-        with override_settings(BOLETA_CONFIG=no_fail_settings):
-
-            responses.add(
-                method=responses.POST,
-                url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/authorization-token',
-                json={"access_token": "test", "codigoSII": "codigo sucursal", "repCodigo": "codigo reparticion"}
-            )
-
-            responses.add(
-                method=responses.POST,
-                url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/ventas',
-                json={"id": "test"}
-            )
-
-            handled_response = self.processor.handle_processor_response(
-                transaction_details, self.basket)
-            self.assertEqual(handled_response.total,
-                             transaction_details["detailOutput"][0]["amount"])
-            self.assertEqual(handled_response.transaction_id,
-                             transaction_details["detailOutput"][0]["buyOrder"])
-            # Check that billing info was saved
-            user_billing_info = UserBillingInfo.objects.get(basket=self.basket)
-            self.assertIsNotNone(user_billing_info.boleta)
-            self.assertEqual(UserBillingInfo.PASSPORT, user_billing_info.id_option)
-
-    @responses.activate
-    @patch("django.core.mail.send_mail")
-    def test_handle_processor_response_boleta_no_connection(self, mock_send_mail):
-
-        transaction_details = self.get_transaction_details_helper()
-
+    @patch("ecommerce.extensions.payment.boleta.authenticate_boleta_electronica")
+    @patch("ecommerce.extensions.payment.boleta.make_boleta_electronica")
+    def test_boleta_emission_fail_boleta_API(self, mock_send_mail, mock_auth, mock_boleta):
         mock_send_mail.return_value = True
 
         with override_settings(BOLETA_CONFIG=self.boleta_settings):
 
-            responses.add(
-                method=responses.POST,
-                url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/authorization-token',
-                status=403
-            )
+            # Create order and make boleta
+            order = create_order(basket=self.basket)
+            
+            mock_auth.return_value = True
+            mock_boleta.side_effect = BoletaElectronicaException
 
-            self.assertRaises(WebpayTransactionDeclined, self.processor.handle_processor_response,
-                              transaction_details, self.basket)
+            # Error creates error description message
+            error = BoletaErrorMessage(content="Error test", order_number=order.number, error_at="boleta")
+
+            self.assertRaises(WebpayTransactionDeclined, self.processor.boleta_emission, self.basket, order)
+
+    @patch("django.core.mail.send_mail")
+    @patch("ecommerce.extensions.payment.boleta.authenticate_boleta_electronica")
+    @patch("ecommerce.extensions.payment.boleta.make_boleta_electronica")
+    def test_boleta_emission_fail_unkown_error(self, mock_send_mail, mock_auth, mock_boleta):
+        mock_send_mail.return_value = True
+
+        with override_settings(BOLETA_CONFIG=self.boleta_settings):
+
+            # Create order and make boleta
+            order = create_order(basket=self.basket)
+            
+            mock_auth.return_value = True
+            mock_boleta.side_effect = Exception
+
+            self.assertRaises(WebpayTransactionDeclined, self.processor.boleta_emission, self.basket, order)
 
     @responses.activate
     @patch("django.core.mail.send_mail")
