@@ -91,13 +91,7 @@ class Webpay(BasePaymentProcessor):
                 a payment from being created.
             TransactionDeclined: Indicates that Webpay declined to create the transaction.
         """
-        #return_url = get_receipt_page_url(
-        #    order_number=basket.order_number,
-        #    site_configuration=basket.site.siteconfiguration
-        #)
-        return_url = urljoin(get_ecommerce_url(), reverse('webpay:return', kwargs={'order_number': basket.order_number}))
         notify_url = self.notify_url
-
 
         # Before anything verify fields
         id_type = request.data.get("id_option")
@@ -108,7 +102,6 @@ class Webpay(BasePaymentProcessor):
 
         result = requests.post(self.configuration["api_url"]+"/process-webpay", json={
             "notify_url": notify_url.replace("http://","https://"),
-            "return_url": return_url.replace("http://","https://"),
             "order_number": basket.order_number,
             "total_incl_tax": basket.total_incl_tax,
             "api_secret": self.configuration["api_secret"]
@@ -172,8 +165,8 @@ class Webpay(BasePaymentProcessor):
         # Fetch transfaction data
         self.record_processor_response(response, basket=basket)
 
-        if response['detailOutput'][0]['responseCode'] == 0:
-            if Decimal(response['detailOutput'][0]['amount']) == Decimal(basket.total_incl_tax):
+        if response['response_code'] == 0:
+            if Decimal(response['amount']) == Decimal(basket.total_incl_tax):
                 # Check if order is already processed
                 if Order.objects.filter(number=basket.order_number).exists():
                     raise WebpayAlreadyProcessed()
@@ -186,7 +179,7 @@ class Webpay(BasePaymentProcessor):
                     card_type=None
                 )
             else:
-                logger.error("Transaction [{}] have different transaction ammount [{}], expected [{}]".format(basket.order_number, response['detailOutput'][0]['amount'], basket.total_incl_tax))
+                logger.error("Transaction [{}] have different transaction ammount [{}], expected [{}]".format(basket.order_number, response['amount'], basket.total_incl_tax))
                 raise PartialAuthorizationError()
         else:
             logger.error("Transaction [{}] for basket [{}] not done or with invalid amount.\n {}".format(basket.order_number, basket.id, response))
@@ -277,6 +270,7 @@ class Webpay(BasePaymentProcessor):
             )
             raise GatewayError("Webpay Module is not ready, error code {}".format(result.status_code))
 
+        # Only the first response can be associated to its transaction_id
         self.record_processor_response(result.json(), transaction_id=None, basket=None)
         return result.json()
 

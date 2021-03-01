@@ -8,7 +8,7 @@ from django.conf import settings
 from django.core.exceptions import MultipleObjectsReturned
 from django.core.management import call_command
 from django.db import transaction
-from django.http import Http404, HttpResponse, HttpResponseBadRequest
+from django.http import Http404, HttpResponseBadRequest, HttpResponseRedirect
 from django.shortcuts import redirect
 from django.urls import reverse
 from django.utils.decorators import method_decorator
@@ -86,9 +86,9 @@ class WebpayPaymentNotificationView(EdxOrderPlacementMixin, View):
             raise Http404("Hubo un error al obtener los detalles desde Webpay.")
 
         try:
-            basket = self._get_basket(payment['buyOrder'])
+            basket = self._get_basket(payment['buy_order'])
             if not basket:
-                logger.error("Basket not found for payment [%s]", payment['buyOrder'])
+                logger.error("Basket not found for payment [%s]", payment['buy_order'])
                 raise Http404("El carrito solicitado no existe.")
         except Exception as e:  # pylint: disable=broad-except
             logger.exception("Error receiving payment {} {}".format(request.POST, e))
@@ -142,36 +142,7 @@ class WebpayPaymentNotificationView(EdxOrderPlacementMixin, View):
             # Order is created; then send email if enabled
             self.payment_processor.boleta_emission(basket, order)
 
-            return HttpResponse(WEBPAY_REDIRECT.format(url=payment['urlRedirection'], token=token))
+            return HttpResponseRedirect("{}?order_number={}".format(reverse('checkout:receipt'),order_number))
         except Exception as e:  # pylint: disable=broad-except
-            logger.exception(self.order_placement_failure_msg, payment['buyOrder'], basket.id)
+            logger.exception(self.order_placement_failure_msg, payment['buy_order'], basket.id)
             raise Http404("Hubo un error al cerrar la orden en ecommerce.")
-
-class WebpaySuccessfulView(View):
-    """Redirect the post return to the receipt"""
-    @method_decorator(transaction.non_atomic_requests)
-    @method_decorator(csrf_exempt)
-    def dispatch(self, request, *args, **kwargs):
-        return super(WebpaySuccessfulView, self).dispatch(request, *args, **kwargs)
-
-    def post(self, request, order_number):
-        url = reverse('checkout:receipt')
-        params = urlencode({'order_number': order_number})
-
-        return redirect('{base_url}?{params}'.format(
-            base_url=url,
-            params=params
-        ))
-
-WEBPAY_REDIRECT = """
-<html>
-  <body>
-    <form name='continue' method='POST' action='{url}'>
-      <input type='hidden' name='token_ws' value="{token}">
-    </form>
-  </body>
-  <script>
-    document.continue.submit();
-  </script>
-</html>
-"""

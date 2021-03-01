@@ -34,7 +34,6 @@ STRIPE_URLS = [
 
 WEBPAY_URLS = [
     url(r'^execute/', webpay.WebpayPaymentNotificationView.as_view(), name='execute'),
-    url(r'^return/(?P<order_number>.+)/$', webpay.WebpaySuccessfulView.as_view(), name='return'),
 ]
 
 urlpatterns = [

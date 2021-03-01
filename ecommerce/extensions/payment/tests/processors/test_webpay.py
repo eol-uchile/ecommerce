@@ -50,23 +50,19 @@ class WebpayTests(PaymentProcessorTestCaseMixin, TestCase):
 
     def get_transaction_details_helper(self):
         """Helper function"""
-        return {"accountingDate": "2020-12-23",
-                "buyOrder": "order-number",
-                "cardDetail": "Last digits",
-                              "detailOutput": [{
-                                  "sharesNumber": 0,
-                                  "amount": float(self.basket.total_incl_tax),
-                                  "commerceCode": "commerce-code-secret",
-                                  "buyOrder": self.basket.order_number,
-                                  "authorizationCode": "secret-auth-code",
-                                  "paymentTypeCode": "VD",
-                                  "responseCode": 0,  # Success
-                              }],
-                "sessionId": "string-hash-value",
-                "transactionDate": "2020-12-23",
-                "urlRedirection": "https://ecommerce.example.com",
-                "VCI": "",
-                }
+
+        return {'accounting_date': '1223',
+            'amount': float(self.basket.total_incl_tax),
+            'authorization_code': '1213',
+            'buy_order': self.basket.order_number,
+            'card_detail': {'card_number': '6623'},
+            'installments_number': 0,
+            'payment_type_code': 'VN',
+            'response_code': 0,
+            'session_id': 'EOL-100049',
+            'status': 'AUTHORIZED',
+            'transaction_date': '2020-12-23T17:50:37.179Z',
+            'vci': 'TSY'}
 
     def make_billing_info_helper(self,id_type,country_code):
         billing_info = UserBillingInfo(
@@ -169,14 +165,14 @@ class WebpayTests(PaymentProcessorTestCaseMixin, TestCase):
         handled_response = self.processor.handle_processor_response(
             transaction_details, self.basket)
         self.assertEqual(handled_response.total,
-                         transaction_details["detailOutput"][0]["amount"])
+                         transaction_details["amount"])
         self.assertEqual(handled_response.transaction_id,
-                         transaction_details["detailOutput"][0]["buyOrder"])
+                         transaction_details["buy_order"])
 
     def test_handle_processor_response_mismatch_error(self):
 
         transaction_details = self.get_transaction_details_helper()
-        transaction_details["detailOutput"][0]["amount"] = -100
+        transaction_details["amount"] = -100
 
         self.assertRaises(PartialAuthorizationError, self.processor.handle_processor_response,
                           transaction_details, self.basket)
@@ -184,7 +180,7 @@ class WebpayTests(PaymentProcessorTestCaseMixin, TestCase):
     def test_handle_processor_response_webpay_error(self):
 
         transaction_details = self.get_transaction_details_helper()
-        transaction_details["detailOutput"][0]["responseCode"] = 3
+        transaction_details["response_code"] = 3
 
         self.assertRaises(WebpayTransactionDeclined, self.processor.handle_processor_response,
                           transaction_details, self.basket)
