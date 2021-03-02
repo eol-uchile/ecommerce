@@ -1,0 +1,142 @@
+import logging
+import requests
+import datetime
+
+from collections import namedtuple
+from threadlocals.threadlocals import set_thread_variable
+
+from django.core.management.base import BaseCommand, CommandError
+from django.db import transaction
+
+from oscar.core.loading import get_model, get_class
+from oscar.apps.partner import strategy
+from oscar.apps.payment.exceptions import PaymentError
+
+from ecommerce.extensions.checkout.mixins import EdxOrderPlacementMixin
+from ecommerce.extensions.payment.processors.webpay import Webpay, WebpayAlreadyProcessed, WebpayTransactionDeclined
+
+Order = get_model('order','Order')
+Basket = get_model('basket','Basket')
+NoShippingRequired = get_class('shipping.methods', 'NoShippingRequired')
+OrderTotalCalculator = get_class('checkout.calculators', 'OrderTotalCalculator')
+PaymentProcessorResponse = get_model('payment', 'PaymentProcessorResponse')
+logger = logging.getLogger(__name__)
+
+class OrderPlacer(EdxOrderPlacementMixin):
+    """
+    Auxiliar class to place orders on behalf of Webpay usign unregistered
+    but backend completed transactions
+    """
+    def __init__(self):
+        self.payment_processor_name = "webpay"
+
+    def set_order_variables(self, order_number):
+
+        self.order_number = order_number
+
+        basket = PaymentProcessorResponse.objects.get(
+                processor_name=self.payment_processor_name,
+                transaction_id=self.order_number
+            ).basket
+        basket.strategy = strategy.Default()
+        # it may be used to add offers?
+        #Applicator().apply(basket, basket.owner, self.request)
+        self.basket = basket
+        self.site = basket.site
+
+        set_thread_variable("request",namedtuple("request", ["site"])(basket.site))
+    
+    @property
+    def payment_processor(self):
+        return Webpay(self.site)
+
+    def get_token(self):
+        assert self.basket is not None
+        first_payment_response = PaymentProcessorResponse.objects.get(processor_name=self.payment_processor_name, transaction_id=self.order_number)
+        return first_payment_response.response["token"]
+    
+    def create_response(self):
+        """
+        Create mock response
+        """
+        token = self.get_token()
+        return {
+            "manual_response": True,
+            "token": token,
+            "buy_order": self.order_number,
+            "emitted": datetime.datetime.now().isoformat(),
+            "response_code": 0,
+            "amount": self.basket.total_incl_tax,
+        }
+
+    def fulfill_order(self):
+        if not self.basket:
+            logger.error("Basket not found for payment [%s]", self.order_number)
+            raise Exception("Basket not found")
+        
+        payment = self.create_response()
+
+        # Check if order was already created
+        try:
+            order = Order.objects.get(number=self.order_number)
+            logger.info("Order already completed")
+            return
+        except Order.DoesNotExist:
+            logger.info("Processing order")
+        
+        try:
+            with transaction.atomic():
+                try:
+                    # payment processor.handle_processor_response
+                    self.handle_payment(payment, self.basket)
+                except PaymentError:
+                    raise Exception("Error processing payment.")
+        except Exception:
+            logger.exception('Attempts to handle payment for basket [%d] failed.', self.basket.id)
+            raise Exception("Error processing basket.")
+
+        try:
+            # Generate and handle the order
+            shipping_method = NoShippingRequired()
+            shipping_charge = shipping_method.calculate(self.basket)
+            order_total = OrderTotalCalculator().calculate(self.basket, shipping_charge)
+
+            user = self.basket.owner
+
+            order_number = self.basket.order_number
+
+            order = self.handle_order_placement(
+                order_number=order_number,
+                user=user,
+                basket=self.basket,
+                shipping_address=None,
+                shipping_method=shipping_method,
+                shipping_charge=shipping_charge,
+                billing_address=None,
+                order_total=order_total
+            )
+            self.handle_post_order(order)
+            
+            # Order is created; then send email if enabled
+            self.payment_processor.boleta_emission(self.basket, order)
+
+        except Exception as e:  # pylint: disable=broad-except
+            logger.exception(self.order_placement_failure_msg, self.order_number, self.basket.id)
+            raise Exception("Hubo un error al cerrar la orden en ecommerce.")
+
+class Command(BaseCommand):
+    help = """Completes order creation for unfulfilled orders.
+
+    Example:
+        python manage.py fulfill_order -l EOL-10001 EOL-10002"""
+    requires_migrations_checks = True
+
+    def add_arguments(self, parser):
+        parser.add_argument("-l", "--list", nargs='+', help="<Required> Set flag to store a list", required=True)
+
+    def handle(self, *args, **options):
+
+        order_placer = OrderPlacer()
+        for order in options["list"]:
+            order_placer.set_order_variables(order)
+            order_placer.fulfill_order()

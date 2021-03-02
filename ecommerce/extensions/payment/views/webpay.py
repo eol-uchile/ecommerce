@@ -46,6 +46,23 @@ class WebpayPaymentNotificationView(EdxOrderPlacementMixin, View):
     def dispatch(self, request, *args, **kwargs):
         return super(WebpayPaymentNotificationView, self).dispatch(request, *args, **kwargs)
 
+    def send_simple_alert_to_eol(self, order_number, site, payed=True, user=None):
+        if hasattr(settings, 'BOLETA_CONFIG') and (settings.BOLETA_CONFIG.get('enabled',False)):
+            payed_message = "Se realizó el pago exitósamente. "
+            if payed:
+                payed_message = "No se efectuó pago. "
+            user_message = ""
+            if user is not None:
+                user_message = "Usuario de correo {} y nombre {}. ".format(user.email, user.full_name)
+            error_mail_footer = "\nOriginado en {} con partner {}".format(site.domain,site.siteconfiguration.lms_url_root)
+            send_mail(
+                'Webpay - Error inesperado',
+                "Lugar: vista de notificacion de webpay.\nDescripción: {}{}La orden no fue generada con éxito.\n\n".format(user_message,payed_message)+error_mail_footer,
+                settings.BOLETA_CONFIG.get("from_email",None),
+                [settings.BOLETA_CONFIG.get("team_email","")],
+                fail_silently=False
+            )
+
     def _get_basket(self, payment_id):
         """
         Retrieve a basket using a payment ID.
@@ -80,7 +97,7 @@ class WebpayPaymentNotificationView(EdxOrderPlacementMixin, View):
             payment = self.payment_processor.get_transaction_data(token)
             if not payment:
                 logger.error("Error fetching Webpay details from token [%s]", token)
-                raise Http404("Hubo un error al obtener los detalles desde Webpay.")
+                raise Http404("Hubo un error al obtener los detalles desde Webpay. ")
         except Exception as e:
             logger.exception("Error receiving payment {} {}".format(request.POST, e))
             raise Http404("Hubo un error al obtener los detalles desde Webpay.")
@@ -90,10 +107,14 @@ class WebpayPaymentNotificationView(EdxOrderPlacementMixin, View):
             if not basket:
                 logger.error("Basket not found for payment [%s]", payment['buy_order'])
                 raise Http404("El carrito solicitado no existe.")
+        except KeyError:
+            logger.exception("Webpay Error, response doesn't have a buy_order because the token is invalid")
+            raise Http404("La petición fue cancelada por Webpay. No se ha realizado ningún cobro.")
         except Exception as e:  # pylint: disable=broad-except
             logger.exception("Error receiving payment {} {}".format(request.POST, e))
             raise Http404("El carrito solicitado no existe.")
 
+        order_number = basket.order_number
         try:
             with transaction.atomic():
                 try:
@@ -109,10 +130,10 @@ class WebpayPaymentNotificationView(EdxOrderPlacementMixin, View):
                     return redirect(reverse('checkout:cancel-checkout'))
         except HttpResponseBadRequest:
             logger.exception('Payment was already processed [%d] failed.', basket.id)
-            raise Http404("El pago ya registra como procesado en ecommerce.")
+            raise Http404("El pago ya registra como procesado en ecommerce. Guarde su número de orden {}.".format(order_number))
         except Exception:
             logger.exception('Attempts to handle payment for basket [%d] failed.', basket.id)
-            raise Http404("Hubo un error al procesar el carrito.")
+            raise Http404("Hubo un error al procesar el carrito. Guarde su número de orden {}.".format(order_number))
 
         try:
             # Generate and handle the order
@@ -121,10 +142,6 @@ class WebpayPaymentNotificationView(EdxOrderPlacementMixin, View):
             order_total = OrderTotalCalculator().calculate(basket, shipping_charge)
 
             user = basket.owner
-            # Given a basket, order number generation is idempotent. Although we've already
-            # generated this order number once before, it's faster to generate it again
-            # than to retrieve an invoice number from PayPal.
-            order_number = basket.order_number
 
             order = self.handle_order_placement(
                 order_number=order_number,
@@ -145,4 +162,4 @@ class WebpayPaymentNotificationView(EdxOrderPlacementMixin, View):
             return HttpResponseRedirect("{}?order_number={}".format(reverse('checkout:receipt'),order_number))
         except Exception as e:  # pylint: disable=broad-except
             logger.exception(self.order_placement_failure_msg, payment['buy_order'], basket.id)
-            raise Http404("Hubo un error al cerrar la orden en ecommerce.")
+            raise Http404("Hubo un error al cerrar la orden en ecommerce. Guarde su número de orden {}".format(order_number))
