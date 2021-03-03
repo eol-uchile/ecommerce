@@ -89,40 +89,36 @@ class OrderPlacer(EdxOrderPlacementMixin):
                 try:
                     # payment processor.handle_processor_response
                     self.handle_payment(payment, self.basket)
+            
+                    # Generate and handle the order
+                    shipping_method = NoShippingRequired()
+                    shipping_charge = shipping_method.calculate(self.basket)
+                    order_total = OrderTotalCalculator().calculate(self.basket, shipping_charge)
+
+                    user = self.basket.owner
+
+                    order_number = self.basket.order_number
+
+                    order = self.handle_order_placement(
+                        order_number=order_number,
+                        user=user,
+                        basket=self.basket,
+                        shipping_address=None,
+                        shipping_method=shipping_method,
+                        shipping_charge=shipping_charge,
+                        billing_address=None,
+                        order_total=order_total
+                    )
+                    self.handle_post_order(order)
+                    
                 except PaymentError:
                     raise Exception("Error processing payment.")
-        except Exception:
-            logger.exception('Attempts to handle payment for basket [%d] failed.', self.basket.id)
-            raise Exception("Error processing basket.")
-
-        try:
-            # Generate and handle the order
-            shipping_method = NoShippingRequired()
-            shipping_charge = shipping_method.calculate(self.basket)
-            order_total = OrderTotalCalculator().calculate(self.basket, shipping_charge)
-
-            user = self.basket.owner
-
-            order_number = self.basket.order_number
-
-            order = self.handle_order_placement(
-                order_number=order_number,
-                user=user,
-                basket=self.basket,
-                shipping_address=None,
-                shipping_method=shipping_method,
-                shipping_charge=shipping_charge,
-                billing_address=None,
-                order_total=order_total
-            )
-            self.handle_post_order(order)
             
             # Order is created; then send email if enabled
             self.payment_processor.boleta_emission(self.basket, order)
-
         except Exception as e:  # pylint: disable=broad-except
             logger.exception(self.order_placement_failure_msg, self.order_number, self.basket.id)
-            raise Exception("Hubo un error al cerrar la orden en ecommerce.")
+            raise Exception("Error while processing order.")
 
 class Command(BaseCommand):
     help = """Completes order creation for unfulfilled orders.
