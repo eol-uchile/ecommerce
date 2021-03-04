@@ -3,6 +3,7 @@
 
 import hashlib
 import hmac
+import string
 import logging
 import requests
 import traceback
