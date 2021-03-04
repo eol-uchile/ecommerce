@@ -6,6 +6,7 @@ import hmac
 import logging
 import requests
 import traceback
+import string
 import urllib.request, urllib.parse, urllib.error
 from urllib.parse import urljoin
 from collections import OrderedDict
@@ -95,8 +96,13 @@ class Webpay(BasePaymentProcessor):
 
         # Before anything verify fields
         id_type = request.data.get("id_option")
+        id_number = request.data.get("id_number")
         if id_type == "0":
-            valid_rut = self.validarRut(request.data.get("id_number"))
+            # Clean and add dash
+            id_number = [c for c in id_number if c in string.digits]
+            id_number.insert(-1,"-")
+            id_number = "".join(id_number)
+            valid_rut = self.validarRut(id_number)
             if not valid_rut:
                 raise Exception("Failed RUT validation")
 
@@ -140,7 +146,7 @@ class Webpay(BasePaymentProcessor):
             billing_city=request.data.get("billing_city"),
             billing_address=request.data.get("billing_address"),
             billing_country_iso2=request.data.get("billing_country"),
-            id_number=request.data.get("id_number"),
+            id_number=id_number,
             id_option=request.data.get("id_option"),
             id_other=request.data.get("id_other"),
             basket=basket,
