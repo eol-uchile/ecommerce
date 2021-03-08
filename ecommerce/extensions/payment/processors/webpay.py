@@ -104,7 +104,7 @@ class Webpay(BasePaymentProcessor):
             id_number = "".join(id_number)
             valid_rut = self.validarRut(id_number)
             if not valid_rut:
-                raise Exception("Failed RUT validation")
+                raise Exception("RUT {} Failed Validation".format(id_number))
 
         result = requests.post(self.configuration["api_url"]+"/process-webpay", json={
             "notify_url": notify_url.replace("http://","https://"),
