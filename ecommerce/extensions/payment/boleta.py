@@ -348,6 +348,8 @@ def recover_boleta(request, configuration=default_config):
         file = cache.get(pdf_url)
         if file == None:
             file = requests.get(pdf_url,headers={"Authorization": "Bearer {}".format(boleta_auth["access_token"])})
+            file.raise_for_status()
+            # Add to cache only if status was OK (no exception on status)
             cache.set(pdf_url, file, 60 * settings.BOLETA_CONFIG.get("pdf_cache",10))
         buffer = io.BytesIO(file.content)
         pdfName = 'boleta-{}.pdf'.format(boleta.voucher_id)
