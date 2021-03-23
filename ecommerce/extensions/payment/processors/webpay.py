@@ -260,7 +260,26 @@ class Webpay(BasePaymentProcessor):
         raise NotImplementedError
 
     def get_transaction_data(self, token):
+        result = requests.post(self.configuration["api_url"]+"/transaction-status", json={
+            "api_secret": self.configuration["api_secret"],
+            "token": token
+        })
         
+        if result.status_code == 403 or result.status_code == 500:
+            send_mail(
+                'Webpay Service Error',
+                "Lugar: Obtener transaccion (Previo a commit) procesador de pago webpay.\nDescripción: El servicio de conexión a Webpay falló con código {} al obtener estado del token.\nEn caso de error 500 revisar los logs del servicio.\nSi el error es 403 las llaves de autenticación se encuentran mal configuradas.\nNo existe basket para determinar sitio ni partner.".format(result.status_code),
+                settings.BOLETA_CONFIG.get("from_email",None),
+                [settings.BOLETA_CONFIG.get("team_email","")],
+                fail_silently=False
+            )
+            raise GatewayError("Webpay Module Status is not ready, error code {}".format(result.status_code))
+        
+        # Only the first response can be associated to its transaction_id
+        self.record_processor_response(result.json(), transaction_id=None, basket=None)
+        return result.json()
+    
+    def commit_transaction(self, token):
         result = requests.post(self.configuration["api_url"]+"/get-transaction", json={
             "api_secret": self.configuration["api_secret"],
             "token": token
