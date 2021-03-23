@@ -157,7 +157,7 @@ class Webpay(BasePaymentProcessor):
 
         return parameters
 
-    def handle_processor_response(self, response, basket):
+    def handle_processor_response(self, response, basket, expected='INITIALIZED'):
         """
         Handle Webpay notification, completing the transaction if the parameters are correct.
         Arguments:
@@ -171,7 +171,7 @@ class Webpay(BasePaymentProcessor):
         # Fetch transfaction data
         self.record_processor_response(response, basket=basket)
 
-        if response['response_code'] == 0:
+        if response['status'] == expected:
             if Decimal(response['amount']) == Decimal(basket.total_incl_tax):
                 # Check if order is already processed
                 if Order.objects.filter(number=basket.order_number).exists():
@@ -188,9 +188,9 @@ class Webpay(BasePaymentProcessor):
                 logger.error("Transaction [{}] have different transaction ammount [{}], expected [{}]".format(basket.order_number, response['amount'], basket.total_incl_tax))
                 raise PartialAuthorizationError()
         else:
-            logger.error("Transaction [{}] for basket [{}] not done or with invalid amount.\n {}".format(basket.order_number, basket.id, response))
+            logger.error("Transaction [{}] for basket [{}] not {} or with invalid amount.\n {}".format(basket.order_number, basket.id, expected, response))
             raise WebpayTransactionDeclined()
-        logger.error("Transaction [{}] for basket [{}] not done or with invalid amount.\n {}".format(basket.order_number, basket.id, response))
+        logger.error("Transaction [{}] for basket [{}] not {} or with invalid amount.\n {}".format(basket.order_number, basket.id, expected, response))
         raise GatewayError("Transaction not ready")
 
     def boleta_emission(self, basket, order):
@@ -203,7 +203,7 @@ class Webpay(BasePaymentProcessor):
         Raises:
             WebpayTransactionDeclined
         """
-        if hasattr(settings, 'BOLETA_CONFIG') and (settings.BOLETA_CONFIG.get('enabled',False) and settings.BOLETA_CONFIG.get('generate_on_payment',False)):
+        if hasattr(settings, 'BOLETA_CONFIG') and \(settings.BOLETA_CONFIG.get('enabled',False) and settings.BOLETA_CONFIG.get('generate_on_payment',False)):
             # Boleta can be issued using the boleta_emissions commmand
             # thus we no longer abort payment
             site = basket.site
@@ -279,7 +279,11 @@ class Webpay(BasePaymentProcessor):
         self.record_processor_response(result.json(), transaction_id=None, basket=None)
         return result.json()
     
-    def commit_transaction(self, token):
+    def commit_transaction(self, token, basket):
+        """
+        Commit payment on webpay and record the response
+        Raise exceptions in case of any anomalies
+        """
         result = requests.post(self.configuration["api_url"]+"/get-transaction", json={
             "api_secret": self.configuration["api_secret"],
             "token": token
@@ -294,10 +298,10 @@ class Webpay(BasePaymentProcessor):
                 fail_silently=False
             )
             raise GatewayError("Webpay Module is not ready, error code {}".format(result.status_code))
+        response = result.json()
+        self.handle_processor_response(response, basket, expected='AUTHORIZED')
 
-        # Only the first response can be associated to its transaction_id
-        self.record_processor_response(result.json(), transaction_id=None, basket=None)
-        return result.json()
+        return response
 
     @property
     def notify_url(self):

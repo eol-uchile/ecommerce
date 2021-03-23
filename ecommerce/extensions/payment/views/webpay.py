@@ -122,14 +122,16 @@ class WebpayPaymentNotificationView(EdxOrderPlacementMixin, View):
             with transaction.atomic():
                 try:
                     # payment processor.handle_processor_response
+                    # Verify correct initialization
                     self.handle_payment(payment, basket)
-                    self.payment_processor.commit_transaction(token)
+                    # Commit order on webpay
+                    payment = self.payment_processor.commit_transaction(token, basket)
                 except PaymentError:
                     self.send_simple_alert_to_eol(request.site,"Error inesperado al procesar el pago en ecommerce. ", order_number=order_number, payed=True, user=basket.owner)
                     return redirect(self.payment_processor.error_url)
                 except WebpayTransactionDeclined:
-                    # CODE OUT OF REACH! see line 112
                     # Cancel the basket, as the transaction was declined
+                    self.send_simple_alert_to_eol(request.site,"Error inesperado al procesar el pago en ecommerce. ", order_number=order_number, payed=True, user=basket.owner)
                     return redirect(reverse('checkout:cancel-checkout'))
         except WebpayAlreadyProcessed:
             logger.exception('Payment was already processed [%d] failed.', basket.id)
@@ -140,6 +142,8 @@ class WebpayPaymentNotificationView(EdxOrderPlacementMixin, View):
             self.send_simple_alert_to_eol(request.site,"Error inesperado al procesar el pago en ecommerce. ", order_number=order_number, payed=True, user=basket.owner)
             raise Http404("Hubo un error al procesar el carrito. Guarde su número de orden {}.".format(order_number))
 
+        # By this point the payment should be confirmed by webpay and our response saved
+        # This should allow us to in case of failure, use the fulfill_order command
         try:
             # Generate and handle the order
             shipping_method = NoShippingRequired()
