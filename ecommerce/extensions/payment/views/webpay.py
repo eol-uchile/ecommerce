@@ -123,6 +123,7 @@ class WebpayPaymentNotificationView(EdxOrderPlacementMixin, View):
                 try:
                     # payment processor.handle_processor_response
                     self.handle_payment(payment, basket)
+                    self.payment_processor.commit_transaction(token)
                 except PaymentError:
                     self.send_simple_alert_to_eol(request.site,"Error inesperado al procesar el pago en ecommerce. ", order_number=order_number, payed=True, user=basket.owner)
                     return redirect(self.payment_processor.error_url)
