@@ -31,12 +31,18 @@ Order = get_model('order', 'Order')
 
 logger = logging.getLogger(__name__)
 
+PaymentProcessorResponse = get_model('payment', 'PaymentProcessorResponse')
+
 class WebpayAlreadyProcessed(Exception):
     """Raised when the order was successful and already processed"""
     pass
 
 class WebpayTransactionDeclined(Exception):
     """Raised when the transaction is declined by webpay"""
+    pass
+
+class WebpayRefundRequired(Exception):
+    """PANIC: Raised when the transaction has been completed with errors"""
     pass
 
 class Webpay(BasePaymentProcessor):
@@ -157,7 +163,7 @@ class Webpay(BasePaymentProcessor):
 
         return parameters
 
-    def handle_processor_response(self, response, basket, expected='INITIALIZED'):
+    def handle_processor_response(self, response, basket):
         """
         Handle Webpay notification, completing the transaction if the parameters are correct.
         Arguments:
@@ -168,15 +174,36 @@ class Webpay(BasePaymentProcessor):
         Raises:
             GatewayError: Indicates the transaction is not ready, or the amount isn't the same as recorded
         """
-        # Fetch transfaction data
-        self.record_processor_response(response, basket=basket)
 
-        if response['status'] == expected:
+        # PART 1: Verify And Commit
+        if response['status'] == 'INITIALIZED':
             if Decimal(response['amount']) == Decimal(basket.total_incl_tax):
                 # Check if order is already processed
                 if Order.objects.filter(number=basket.order_number).exists():
                     raise WebpayAlreadyProcessed()
-                
+
+                commited_response = self.commit_transaction(response['token'])
+            else:
+                logger.error("Initialized transaction [{}] has different ammount [{}], expected [{}]".format(basket.order_number, response['amount'], basket.total_incl_tax))
+                raise PartialAuthorizationError()
+        else:
+            logger.error("Transaction [{}] for basket [{}] not Initialized or with invalid amount.\n {}".format(basket.order_number, basket.id, response))
+            raise WebpayTransactionDeclined()
+
+        # Record transfaction data
+        self.record_processor_response(commited_response, basket=basket)
+
+        # PART 2: Verify commited status
+        if commited_response['status'] == 'AUTHORIZED':
+            if Decimal(commited_response['amount']) == Decimal(basket.total_incl_tax):
+
+                # Before saving verify that user hasn't payed already
+                # by looking if there exists a final processorResponse (basket and no transaction_id)
+                response_check = PaymentProcessorResponse.objects.filter(basket=basket, transaction_id=None)
+                if response_check.count() > 1:
+                    logger.error("REFUND REQUIRED. Transaction [{}] registers as already processed".format(basket.order_number))
+                    raise WebpayRefundRequired()   
+
                 return HandledProcessorResponse(
                     transaction_id=basket.order_number,
                     total=basket.total_incl_tax, 
@@ -185,13 +212,11 @@ class Webpay(BasePaymentProcessor):
                     card_type=None
                 )
             else:
-                logger.error("Transaction [{}] have different transaction ammount [{}], expected [{}]".format(basket.order_number, response['amount'], basket.total_incl_tax))
-                raise PartialAuthorizationError()
+                logger.error("REFUND REQUIRED. Transaction [{}] has different ammount [{}], expected [{}]".format(basket.order_number, response['amount'], basket.total_incl_tax))
+                raise WebpayRefundRequired()
         else:
-            logger.error("Transaction [{}] for basket [{}] not {} or with invalid amount.\n {}".format(basket.order_number, basket.id, expected, response))
+            logger.error("Transaction [{}] for basket [{}] not AUTHORIZED or with invalid amount.\n {}".format(basket.order_number, basket.id, response))
             raise WebpayTransactionDeclined()
-        logger.error("Transaction [{}] for basket [{}] not {} or with invalid amount.\n {}".format(basket.order_number, basket.id, expected, response))
-        raise GatewayError("Transaction not ready")
 
     def boleta_emission(self, basket, order):
         """
@@ -203,7 +228,7 @@ class Webpay(BasePaymentProcessor):
         Raises:
             WebpayTransactionDeclined
         """
-        if hasattr(settings, 'BOLETA_CONFIG') and \(settings.BOLETA_CONFIG.get('enabled',False) and settings.BOLETA_CONFIG.get('generate_on_payment',False)):
+        if hasattr(settings, 'BOLETA_CONFIG') and (settings.BOLETA_CONFIG.get('enabled',False) and settings.BOLETA_CONFIG.get('generate_on_payment',False)):
             # Boleta can be issued using the boleta_emissions commmand
             # thus we no longer abort payment
             site = basket.site
@@ -260,6 +285,9 @@ class Webpay(BasePaymentProcessor):
         raise NotImplementedError
 
     def get_transaction_data(self, token):
+        """
+        Recover transaction data without commiting to webpay
+        """
         result = requests.post(self.configuration["api_url"]+"/transaction-status", json={
             "api_secret": self.configuration["api_secret"],
             "token": token
@@ -279,10 +307,9 @@ class Webpay(BasePaymentProcessor):
         self.record_processor_response(result.json(), transaction_id=None, basket=None)
         return result.json()
     
-    def commit_transaction(self, token, basket):
+    def commit_transaction(self, token):
         """
         Commit payment on webpay and record the response
-        Raise exceptions in case of any anomalies
         """
         result = requests.post(self.configuration["api_url"]+"/get-transaction", json={
             "api_secret": self.configuration["api_secret"],
@@ -292,14 +319,13 @@ class Webpay(BasePaymentProcessor):
         if result.status_code == 403 or result.status_code == 500:
             send_mail(
                 'Webpay Service Error',
-                "Lugar: procesador de pago webpay.\nDescripción: El servicio de conexión a Webpay falló con código {} al verificar correctitud del token.\nEn caso de error 500 revisar los logs del servicio.\nSi el error es 403 las llaves de autenticación se encuentran mal configuradas.\nNo existe basket para determinar sitio ni partner.".format(result.status_code),
+                "Lugar: procesador de pago webpay.\nDescripción: El servicio de conexión a Webpay falló con código {} al hacer commit.\nEn caso de error 500 revisar los logs del servicio.\nSi el error es 403 las llaves de autenticación se encuentran mal configuradas.\nNo existe basket para determinar sitio ni partner.".format(result.status_code),
                 settings.BOLETA_CONFIG.get("from_email",None),
                 [settings.BOLETA_CONFIG.get("team_email","")],
                 fail_silently=False
             )
             raise GatewayError("Webpay Module is not ready, error code {}".format(result.status_code))
         response = result.json()
-        self.handle_processor_response(response, basket, expected='AUTHORIZED')
 
         return response
 

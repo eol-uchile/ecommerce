@@ -87,8 +87,10 @@ class OrderPlacer(EdxOrderPlacementMixin):
         try:
             with transaction.atomic():
                 try:
-                    # payment processor.handle_processor_response
-                    self.handle_payment(payment, self.basket)
+                    # self.payment_processor.token = self.get_token()
+
+                    # # payment processor.handle_processor_response
+                    # self.handle_payment(payment, self.basket)
             
                     # Generate and handle the order
                     shipping_method = NoShippingRequired()

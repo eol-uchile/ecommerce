@@ -23,7 +23,7 @@ from oscar.core.loading import get_class, get_model
 from ecommerce.extensions.basket.utils import basket_add_organization_attribute
 from ecommerce.extensions.checkout.mixins import EdxOrderPlacementMixin
 from ecommerce.extensions.checkout.utils import get_receipt_page_url
-from ecommerce.extensions.payment.processors.webpay import Webpay, WebpayAlreadyProcessed, WebpayTransactionDeclined
+from ecommerce.extensions.payment.processors.webpay import Webpay, WebpayAlreadyProcessed, WebpayTransactionDeclined, WebpayRefundRequired
 
 logger = logging.getLogger(__name__)
 
@@ -64,25 +64,30 @@ class WebpayPaymentNotificationView(EdxOrderPlacementMixin, View):
     def _get_basket(self, payment_id):
         """
         Retrieve a basket using a payment ID.
+
+        CHANGE: In case of duplicate baskets the first will be used.
+
         Arguments:
             payment_id: payment_id received from Webpay.
         Returns:
             It will return related basket or log exception and return None if
-            duplicate payment_id received or any other exception occurred.
+            any exception occurred.
         """
         try:
-            basket = PaymentProcessorResponse.objects.get(
+            payment_responses = PaymentProcessorResponse.objects.filter(
                 processor_name=self.payment_processor.NAME,
                 transaction_id=payment_id
-            ).basket
+            )
+            if payment_responses.count() > 1:
+                logger.warning("Duplicate payment ID [%s] received from Webpay.", payment_id)
+            # Always return first basket
+            # to avoid double payments
+            basket = payment_responses.first().basket
             basket.strategy = strategy.Default()
             Applicator().apply(basket, basket.owner, self.request)
 
             basket_add_organization_attribute(basket, self.request.GET)
             return basket
-        except MultipleObjectsReturned:
-            logger.warning("Duplicate payment ID [%s] received from Webpay.", payment_id)
-            return None
         except Exception:  # pylint: disable=broad-except
             logger.exception("Unexpected error during basket retrieval while executing Webpay payment.")
             return None
@@ -119,20 +124,23 @@ class WebpayPaymentNotificationView(EdxOrderPlacementMixin, View):
 
         order_number = basket.order_number
         try:
-            with transaction.atomic():
-                try:
-                    # payment processor.handle_processor_response
-                    # Verify correct initialization
-                    self.handle_payment(payment, basket)
-                    # Commit order on webpay
-                    payment = self.payment_processor.commit_transaction(token, basket)
-                except PaymentError:
-                    self.send_simple_alert_to_eol(request.site,"Error inesperado al procesar el pago en ecommerce. ", order_number=order_number, payed=True, user=basket.owner)
-                    return redirect(self.payment_processor.error_url)
-                except WebpayTransactionDeclined:
-                    # Cancel the basket, as the transaction was declined
-                    self.send_simple_alert_to_eol(request.site,"Error inesperado al procesar el pago en ecommerce. ", order_number=order_number, payed=True, user=basket.owner)
-                    return redirect(reverse('checkout:cancel-checkout'))
+            # Asign token
+            payment['token'] = token
+            # Calls payment processor.handle_processor_response
+            # Verify correct initialization, Commit order on webpay
+            # Record response on DB
+            self.handle_payment(payment, basket)
+        except WebpayTransactionDeclined:
+            # Cancel the basket, as the transaction was declined
+            self.send_simple_alert_to_eol(request.site,"Error inesperado al procesar el pago en ecommerce. ", order_number=order_number, payed=False, user=basket.owner)
+            return redirect(reverse('checkout:cancel-checkout'))
+        except PaymentError:
+            self.send_simple_alert_to_eol(request.site,"Error inesperado al procesar el pago en ecommerce. ", order_number=order_number, payed=True, user=basket.owner)
+            return redirect(self.payment_processor.error_url)
+        except WebpayRefundRequired:
+            # Cancel the basket, as the transaction was declined
+            self.send_simple_alert_to_eol(request.site,"Inconsistencia en montos de pagos cobrados o pago ya registrado. Se necesita un reembolso. ", order_number=order_number, payed=True, user=basket.owner)
+            raise Http404("Hubo un error desde Webpay. Guarde su número de orden {}.".format(order_number))
         except WebpayAlreadyProcessed:
             logger.exception('Payment was already processed [%d] failed.', basket.id)
             self.send_simple_alert_to_eol(request.site,"El pago ya registra como procesado en ecommerce. ", order_number=order_number, payed=True, user=basket.owner)
