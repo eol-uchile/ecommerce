@@ -199,8 +199,13 @@ class Webpay(BasePaymentProcessor):
 
                 # Before saving verify that user hasn't payed already
                 # by looking if there exists a final processorResponse (basket and no transaction_id)
-                response_check = PaymentProcessorResponse.objects.filter(basket=basket, transaction_id=None)
-                if response_check.count() > 1:
+                response_check = PaymentProcessorResponse.objects.filter(basket=basket, transaction_id=None).values('response')
+                # Count AUTHORIZED
+                count = 0
+                for response_item in response_check:
+                    if response_item['response']['status'] == 'AUTHORIZED':
+                        count = count + 1
+                if count > 1:
                     logger.error("REFUND REQUIRED. Transaction [{}] registers as already processed".format(basket.order_number))
                     raise WebpayRefundRequired()   
 
