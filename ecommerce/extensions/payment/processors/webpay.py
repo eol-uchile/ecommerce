@@ -176,7 +176,7 @@ class Webpay(BasePaymentProcessor):
         """
 
         # PART 1: Verify And Commit
-        if response['status'] == 'INITIALIZED':
+        if response['status'] == 'INITIALIZED' and response['response_code'] == 0:
             if Decimal(response['amount']) == Decimal(basket.total_incl_tax):
                 # Check if order is already processed
                 if Order.objects.filter(number=basket.order_number).exists():
@@ -190,11 +190,11 @@ class Webpay(BasePaymentProcessor):
             logger.error("Transaction [{}] for basket [{}] not Initialized or with invalid amount.\n {}".format(basket.order_number, basket.id, response))
             raise WebpayTransactionDeclined()
 
-        # Record transfaction data
+        # Record transaction data
         self.record_processor_response(commited_response, basket=basket)
 
         # PART 2: Verify commited status
-        if commited_response['status'] == 'AUTHORIZED':
+        if commited_response['status'] == 'AUTHORIZED' and commited_response['response_code'] == 0:
             if Decimal(commited_response['amount']) == Decimal(basket.total_incl_tax):
 
                 # Before saving verify that user hasn't payed already
@@ -217,10 +217,10 @@ class Webpay(BasePaymentProcessor):
                     card_type=None
                 )
             else:
-                logger.error("REFUND REQUIRED. Transaction [{}] has different ammount [{}], expected [{}]".format(basket.order_number, response['amount'], basket.total_incl_tax))
+                logger.error("REFUND REQUIRED. Transaction [{}] has different ammount [{}], expected [{}]".format(basket.order_number, commited_response['amount'], basket.total_incl_tax))
                 raise WebpayRefundRequired()
         else:
-            logger.error("Transaction [{}] for basket [{}] not AUTHORIZED or with invalid amount.\n {}".format(basket.order_number, basket.id, response))
+            logger.error("Transaction [{}] for basket [{}] not AUTHORIZED\n {}".format(basket.order_number, basket.id, commited_response))
             raise WebpayTransactionDeclined()
 
     def boleta_emission(self, basket, order):

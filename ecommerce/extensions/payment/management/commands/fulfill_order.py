@@ -12,6 +12,7 @@ from oscar.core.loading import get_model, get_class
 from oscar.apps.partner import strategy
 from oscar.apps.payment.exceptions import PaymentError
 
+from ecommerce.extensions.payment.processors import HandledProcessorResponse
 from ecommerce.extensions.checkout.mixins import EdxOrderPlacementMixin
 from ecommerce.extensions.payment.processors.webpay import Webpay, WebpayAlreadyProcessed, WebpayTransactionDeclined
 
@@ -69,13 +70,22 @@ class OrderPlacer(EdxOrderPlacementMixin):
             "amount": self.basket.total_incl_tax,
         }
 
+    def create_handled_processor_response(self):
+        assert self.basket is not None
+
+        return HandledProcessorResponse(
+                    transaction_id=self.basket.order_number,
+                    total=self.basket.total_incl_tax, 
+                    currency='USD',
+                    card_number='webpay_{}'.format(self.basket.id),
+                    card_type=None
+                )
+
     def fulfill_order(self):
         if not self.basket:
             logger.error("Basket not found for payment [%s]", self.order_number)
             raise Exception("Basket not found")
         
-        payment = self.create_response()
-
         # Check if order was already created
         try:
             order = Order.objects.get(number=self.order_number)
@@ -87,11 +97,8 @@ class OrderPlacer(EdxOrderPlacementMixin):
         try:
             with transaction.atomic():
                 try:
-                    # self.payment_processor.token = self.get_token()
+                    self.record_payment(self.basket, self.create_handled_processor_response())
 
-                    # # payment processor.handle_processor_response
-                    # self.handle_payment(payment, self.basket)
-            
                     # Generate and handle the order
                     shipping_method = NoShippingRequired()
                     shipping_charge = shipping_method.calculate(self.basket)
