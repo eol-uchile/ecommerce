@@ -132,8 +132,7 @@ class WebpayPaymentNotificationView(EdxOrderPlacementMixin, View):
             self.handle_payment(payment, basket)
         except WebpayTransactionDeclined:
             # Cancel the basket, as the transaction was declined
-            self.send_simple_alert_to_eol(request.site,"Error inesperado al procesar el pago en ecommerce. ", order_number=order_number, payed=False, user=basket.owner)
-            return redirect(reverse('checkout:cancel-checkout'))
+            return Http404("Transacción declinada por Webpay. Guarde su número de orden {}.".format(order_number))
         except PaymentError:
             self.send_simple_alert_to_eol(request.site,"Error inesperado al procesar el pago en ecommerce. ", order_number=order_number, payed=True, user=basket.owner)
             return redirect(self.payment_processor.error_url)

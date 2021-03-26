@@ -35,10 +35,15 @@ class OrderPlacer(EdxOrderPlacementMixin):
 
         self.order_number = order_number
 
-        basket = PaymentProcessorResponse.objects.get(
+        responses = PaymentProcessorResponse.objects.filter(
                 processor_name=self.payment_processor_name,
                 transaction_id=self.order_number
-            ).basket
+            )
+        if responses.count() > 1:
+            logger.warn("Got {} initial processor responses, using first to recover basket".format(responses.count()))
+            
+        basket = responses.first().basket
+        
         basket.strategy = strategy.Default()
         # it may be used to add offers?
         #Applicator().apply(basket, basket.owner, self.request)
