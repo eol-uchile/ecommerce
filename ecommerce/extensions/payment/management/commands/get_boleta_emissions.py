@@ -45,12 +45,12 @@ class Command(BaseCommand):
     
     with open("boletas.csv", "w") as file:
       # Write header
-      file.write("basket,basket_user,basket_amount,order_amount,order_placed,boleta_amount,boleta_id,boleta_folio,boleta_emission_date\n")
+      file.write("basket_id,basket_user,basket_amount,order_amount,order_placed,order_number,boleta_amount,boleta_id,boleta_folio,boleta_emission_date\n")
 
       for boleta in boletas:
         try:
           # Get Basket
-          basket = Basket.objects.get(pk=boleta.basket)
+          basket = Basket.objects.get(pk=boleta.basket.pk)
           basket.strategy = strategy.Default()
 
           # Get Order
@@ -58,7 +58,7 @@ class Command(BaseCommand):
           order = Order.objects.get(number=order_number)
           
           # Write data
-          file.write("{},{},{},{},{},{},{},{},{}\n".format(basket.id,basket.owner,basket.total_incl_tax,order.total_incl_tax,order.date_placed,boleta.voucher_id, boleta.folio, boleta.emission_date))
+          file.write("{},{},{},{},{},{},{},{},{}\n".format(basket.id,basket.owner,basket.total_incl_tax,order.total_incl_tax,order.date_placed,order_number,boleta.amount, boleta.voucher_id, boleta.folio, boleta.emission_date))
         except Exception as e:
           logger.error(str(e), exc_info=True)
       
