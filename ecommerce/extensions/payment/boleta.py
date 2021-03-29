@@ -150,10 +150,10 @@ def send_boleta_email(basket):
         logger.error("Couldn't send boleta email notification")
 
 
-def raise_boleta_error(response):
+def raise_boleta_error(response, e, create_error=False, order=None):
     """
-    Save response and either the webprocessor
-    or the management command will consume it
+    Save response for email alarms.
+    The webprocessor or the management command will consume it
 
     Raises BoletaElectronicaException
     """
@@ -162,11 +162,12 @@ def raise_boleta_error(response):
         error_text = json.dumps(response.json(),indent=1)
     except Exception:
         pass
-    boleta_error_message = BoletaErrorMessage(
-        content=error_text[:255],
-        code=response.status_code,
-        order_number=basket.order_number)
-    boleta_error_message.save()
+    if create_error:
+        boleta_error_message = BoletaErrorMessage(
+            content=error_text[:255],
+            code=response.status_code,
+            order_number=order)
+        boleta_error_message.save()
     raise BoletaElectronicaException("http error "+str(e))
 
 
@@ -286,7 +287,7 @@ def make_boleta_electronica(basket, order, auth, configuration=default_config):
         error_response = result
         result.raise_for_status()
     except requests.exceptions.HTTPError as e:
-        raise_boleta_error(error_response)
+        raise_boleta_error(error_response, e, True, basket.order_number)
         
     voucher_id = result.json()['id']
     voucher_url = '{}/ventas/{}/boletas/pdf'.format(
@@ -343,7 +344,7 @@ def get_boleta_details(id, auth_headers, configuration=default_config):
         error_response = result
         result.raise_for_status()
     except requests.exceptions.HTTPError as e:
-        raise_boleta_error(error_response)
+        raise_boleta_error(error_response, e)
     return result.json()
 
 # VIEWS

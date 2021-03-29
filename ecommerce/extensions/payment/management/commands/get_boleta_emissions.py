@@ -30,7 +30,7 @@ class Command(BaseCommand):
       logger.error("BOLETA_CONFIG is not set or enabled, enable it on your settings to run this commmand")
       return
     
-    if len(options["list"]) > 0:
+    if options["list"] is not None and len(options["list"]) > 0:
       boletas = []
       for b_id in options["list"]:
         try:

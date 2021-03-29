@@ -15,6 +15,7 @@ class Command(BaseCommand):
   def add_arguments(self, parser):
     # Optional argument
     parser.add_argument("-l", "--list", nargs='+', help="List of boleta ids to complete")
+    parser.add_argument("--dry-run", help="Run without applying changes", action='store_true')    
 
   def handle(self, *args, **options):
 
@@ -23,7 +24,7 @@ class Command(BaseCommand):
       logger.error("BOLETA_CONFIG is not set or enabled, enable it on your settings to run this commmand")
       return
     
-    if len(options["list"]) > 0:
+    if options["list"] is not None and len(options["list"]) > 0:
       boletas = []
       for b_id in options["list"]:
         try:
@@ -42,11 +43,12 @@ class Command(BaseCommand):
         auth = authenticate_boleta_electronica()
         headers = {"Authorization": "Bearer " + auth["access_token"]}
         details = get_boleta_details(boleta.voucher_id, headers)
-        # Update
-        boleta.folio = boleta_details["boleta"]["folio"]
-        boleta.emission_date = datetime.fromisoformat(boleta_details["boleta"]["fechaEmision"])
-        boleta.amount = boleta_details["recaudaciones"][int("monto")]
-        boleta.save()
+        if not options["dry_run"]:
+          # Update
+          boleta.folio = boleta_details["boleta"]["folio"]
+          boleta.emission_date = datetime.fromisoformat(boleta_details["boleta"]["fechaEmision"])
+          boleta.amount = boleta_details["recaudaciones"][int("monto")]
+          boleta.save()
         
         logger.info("Recovered data for boleta {}".format(boleta.voucher_id))
       except Exception as e:
