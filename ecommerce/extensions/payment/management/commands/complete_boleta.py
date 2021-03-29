@@ -45,9 +45,9 @@ class Command(BaseCommand):
         details = get_boleta_details(boleta.voucher_id, headers)
         if not options["dry_run"]:
           # Update
-          boleta.folio = boleta_details["boleta"]["folio"]
-          boleta.emission_date = datetime.fromisoformat(boleta_details["boleta"]["fechaEmision"])
-          boleta.amount = boleta_details["recaudaciones"][int("monto")]
+          boleta.folio = details["boleta"]["folio"]
+          boleta.emission_date = datetime.fromisoformat(details["boleta"]["fechaEmision"])
+          boleta.amount = int(details["recaudaciones"][0]["monto"])
           boleta.save()
         
         logger.info("Recovered data for boleta {}".format(boleta.voucher_id))

@@ -52,7 +52,8 @@ class SDNCheckFailureAdmin(admin.ModelAdmin):
 
 @admin.register(BoletaElectronica)
 class BoletaElectronicaAdmin(admin.ModelAdmin):
-    pass
+    raw_id_fields = ('basket',)
+    search_fields = ('folio','voucher_id',)
 
 @admin.register(UserBillingInfo)
 class UserBillingAdmin(admin.ModelAdmin):

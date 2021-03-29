@@ -298,7 +298,7 @@ def make_boleta_electronica(basket, order, auth, configuration=default_config):
     except BoletaElectronicaException:
         # Empty details; do not lock and retry later
         logger.warn("Couldn't recover info for boleta {}".format(voucher_id))
-        boleta_details = {"boleta": {}, "recaudaciones": {}}
+        boleta_details = {"boleta": {}, "recaudaciones": [{}]}
 
     if boleta_details["boleta"].get("fechaEmision",None) == None:
         emission_date = None
@@ -309,7 +309,7 @@ def make_boleta_electronica(basket, order, auth, configuration=default_config):
         basket=basket, receipt_url=voucher_url, voucher_id=voucher_id,
         folio=boleta_details["boleta"].get("folio",""),
         emission_date=emission_date,
-        amount=boleta_details["recaudaciones"].get(int("monto"),0),
+        amount=int(boleta_details["recaudaciones"][0].get("monto",0)),
     )
     boleta.save()
 

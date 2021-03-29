@@ -58,7 +58,7 @@ class Command(BaseCommand):
           order = Order.objects.get(number=order_number)
           
           # Write data
-          file.write("{},{},{},{},{},{},{},{},{}\n".format(basket.id,basket.owner,basket.total_incl_tax,order.total_incl_tax,order.date_placed,order_number,boleta.amount, boleta.voucher_id, boleta.folio, boleta.emission_date))
+          file.write("{},{},{},{},{},{},{},{},{},{}\n".format(basket.id,basket.owner,basket.total_incl_tax,order.total_incl_tax,order.date_placed,order_number,boleta.amount, boleta.voucher_id, boleta.folio, boleta.emission_date))
         except Exception as e:
           logger.error(str(e), exc_info=True)
       
