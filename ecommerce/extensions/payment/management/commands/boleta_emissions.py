@@ -43,9 +43,15 @@ class Command(BaseCommand):
                 # one user billing info object. 
                 # (avoid DoesNotExist Exception)
                 info = UserBillingInfo.objects.filter(basket=order.basket, boleta=None)
-                if len(info) != 1:
+                info_count = info.count()
+                if info_count > 1:
+                    logger.warn("UserBillingInfo counts {}".format(info_count))
+                elif info_count == 0:
+                    # What!? someone did a manual operation somewhere
+                    # Account for this
+                    logger.warn("UserBillingInfo counts a 0 for a completed order. Did you manualy complete the order? Skipping")
                     continue
-                info = info[0]
+                info = info.first()
                 basket = info.basket
                 basket.strategy = strategy.Default()
 

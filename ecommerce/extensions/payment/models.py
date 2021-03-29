@@ -301,6 +301,9 @@ class BoletaElectronica(models.Model):
     # We don't expect ids to grow that much
     voucher_id = models.CharField(max_length=64)
     receipt_url = models.CharField(max_length=255)
+    folio = models.CharField(max_length=64, blank=True)
+    emission_date = models.DateTimeField(null=True)
+    amount = models.IntegerField(default=0)
 
     def __str__(self):
         return "Boleta {}".format(self.voucher_id)

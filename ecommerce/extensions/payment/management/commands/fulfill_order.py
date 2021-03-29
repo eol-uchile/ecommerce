@@ -38,10 +38,10 @@ class OrderPlacer(EdxOrderPlacementMixin):
         responses = PaymentProcessorResponse.objects.filter(
                 processor_name=self.payment_processor_name,
                 transaction_id=self.order_number
-            )
+            ).exclude(basket=None)
         if responses.count() > 1:
-            logger.warn("Got {} initial processor responses, using first to recover basket".format(responses.count()))
-            
+            logger.warn("Got {} processor responses, using first to recover basket".format(responses.count()))
+
         basket = responses.first().basket
         
         basket.strategy = strategy.Default()
@@ -142,7 +142,7 @@ class Command(BaseCommand):
     requires_migrations_checks = True
 
     def add_arguments(self, parser):
-        parser.add_argument("-l", "--list", nargs='+', help="<Required> Set flag to store a list", required=True)
+        parser.add_argument("-l", "--list", nargs='+', help="<Required> List of orders separated by space", required=True)
 
     def handle(self, *args, **options):
 

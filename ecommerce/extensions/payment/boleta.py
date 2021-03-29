@@ -1,17 +1,19 @@
-import requests
 import io
-import logging
 import json
-import waffle
+import logging
 from base64 import b64encode
+from datetime import datetime
 
-from django.http import FileResponse, HttpResponse
-from django.shortcuts import render
+import requests
+import waffle
 from django.conf import settings
 from django.core.cache import cache
+from django.http import FileResponse, HttpResponse
+from django.shortcuts import render
 from oscar.core.loading import get_model
-from ecommerce.extensions.payment.models import UserBillingInfo, BoletaElectronica, BoletaErrorMessage
+
 from ecommerce.extensions.checkout.utils import get_receipt_page_url
+from ecommerce.extensions.payment.models import BoletaElectronica, BoletaErrorMessage, UserBillingInfo
 from ecommerce.notifications.notifications import send_notification
 
 logger = logging.getLogger(__name__)
@@ -148,6 +150,26 @@ def send_boleta_email(basket):
         logger.error("Couldn't send boleta email notification")
 
 
+def raise_boleta_error(response):
+    """
+    Save response and either the webprocessor
+    or the management command will consume it
+
+    Raises BoletaElectronicaException
+    """
+    error_text = response.text
+    try:
+        error_text = json.dumps(response.json(),indent=1)
+    except Exception:
+        pass
+    boleta_error_message = BoletaErrorMessage(
+        content=error_text[:255],
+        code=response.status_code,
+        order_number=basket.order_number)
+    boleta_error_message.save()
+    raise BoletaElectronicaException("http error "+str(e))
+
+
 def make_boleta_electronica(basket, order, auth, configuration=default_config):
     """
     Recover billing information and create a new boleta
@@ -163,7 +185,7 @@ def make_boleta_electronica(basket, order, auth, configuration=default_config):
     """
 
     # Get user info
-    billing_info = UserBillingInfo.objects.get(basket=basket)
+    billing_info = UserBillingInfo.objects.filter(basket=basket).first()
     rut = billing_info.id_number
     # Rut del Receptor. Si no se informa, por regulación, se agrega 66666666-6. (Largo máximo 10, formato 12345678-K)
     # NOTE: API RUT max length is 10
@@ -263,29 +285,31 @@ def make_boleta_electronica(basket, order, auth, configuration=default_config):
                                )
         error_response = result
         result.raise_for_status()
-
-
     except requests.exceptions.HTTPError as e:
-        # Save response and either the webprocessor
-        # or the management command will consume it
-        error_text = error_response.text
-        try:
-            error_text = json.dumps(error_response.json(),indent=1)
-        except Exception:
-            pass
-        boleta_error_message = BoletaErrorMessage(
-            content=error_text[:255],
-            code=error_response.status_code,
-            order_number=basket.order_number)
-        boleta_error_message.save()
-        raise BoletaElectronicaException("http error "+str(e))
-
+        raise_boleta_error(error_response)
+        
     voucher_id = result.json()['id']
     voucher_url = '{}/ventas/{}/boletas/pdf'.format(
         config_ventas_url, voucher_id)
 
+    try:
+        boleta_details = get_boleta_details(voucher_id, headers)
+    except BoletaElectronicaException:
+        # Empty details; do not lock and retry later
+        logger.warn("Couldn't recover info for boleta {}".format(voucher_id))
+        boleta_details = {"boleta": {}, "recaudaciones": {}}
+
+    if boleta_details["boleta"].get("fechaEmision",None) == None:
+        emission_date = None
+    else:
+        emission_date = datetime.fromisoformat(boleta_details["boleta"]["fechaEmision"])
+
     boleta = BoletaElectronica(
-        basket=basket, receipt_url=voucher_url, voucher_id=voucher_id)
+        basket=basket, receipt_url=voucher_url, voucher_id=voucher_id,
+        folio=boleta_details["boleta"].get("folio",""),
+        emission_date=emission_date,
+        amount=boleta_details["recaudaciones"].get(int("monto"),0),
+    )
     boleta.save()
 
     billing_info.boleta = boleta
@@ -299,6 +323,28 @@ def make_boleta_electronica(basket, order, auth, configuration=default_config):
         'receipt_url':  voucher_url
     }
 
+
+def get_boleta_details(id, auth_headers, configuration=default_config):
+    """
+    Recovers boleta data like
+    - boleta (folio, timestamp)
+    -recaudaciones (amount)
+    Returns:
+        JSON response
+    Raises:
+        BoletaElectronicaException
+    """
+    config_ventas_url = configuration["config_ventas_url"]
+    try:
+        result = requests.get(
+            "{}/ventas/{}".format(config_ventas_url,id),
+            headers=auth_headers
+        )
+        error_response = result
+        result.raise_for_status()
+    except requests.exceptions.HTTPError as e:
+        raise_boleta_error(error_response)
+    return result.json()
 
 # VIEWS
 def recover_boleta(request, configuration=default_config):

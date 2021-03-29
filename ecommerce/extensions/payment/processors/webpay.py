@@ -58,7 +58,7 @@ class Webpay(BasePaymentProcessor):
         """
         super(Webpay, self).__init__(site)
 
-    def validarRut(self, rut):
+    def validateRUT(self, rut):
         """
             Verify if the 'rut' is valid
             Reference: https://github.com/eol-uchile/uchileedxlogin/blob/master/uchileedxlogin/views.py#L283
@@ -108,7 +108,7 @@ class Webpay(BasePaymentProcessor):
             id_number = [c for c in id_number if c in string.digits]
             id_number.insert(-1,"-")
             id_number = "".join(id_number)
-            valid_rut = self.validarRut(id_number)
+            valid_rut = self.validateRUT(id_number)
             if not valid_rut:
                 raise Exception("RUT {} Failed Validation".format(id_number))
 
@@ -146,22 +146,45 @@ class Webpay(BasePaymentProcessor):
             'token_ws': result['token'],
         }
 
-        # After all is ready register the billing info
-        billing_info = UserBillingInfo(
-            billing_district=request.data.get("billing_district"),
-            billing_city=request.data.get("billing_city"),
-            billing_address=request.data.get("billing_address"),
-            billing_country_iso2=request.data.get("billing_country"),
-            id_number=id_number,
-            id_option=request.data.get("id_option"),
-            id_other=request.data.get("id_other"),
-            basket=basket,
-            first_name=request.data.get("first_name"),
-            last_name_1=request.data.get("last_name_1"),
-            last_name_2=request.data.get("last_name_2"))
-        billing_info.save()
+        # Overwrite userInfo
+        previous_user_info = UserBillingInfo.objects.filter(basket=basket)
+        previous_user_info_count = previous_user_info.count()
+        if previous_user_info_count == 0:
+            # After all is ready register the billing info
+            billing_info = UserBillingInfo(
+                billing_district=request.data.get("billing_district"),
+                billing_city=request.data.get("billing_city"),
+                billing_address=request.data.get("billing_address"),
+                billing_country_iso2=request.data.get("billing_country"),
+                id_number=id_number,
+                id_option=request.data.get("id_option"),
+                id_other=request.data.get("id_other"),
+                basket=basket,
+                first_name=request.data.get("first_name"),
+                last_name_1=request.data.get("last_name_1"),
+                last_name_2=request.data.get("last_name_2"))
+            billing_info.save()
+
+            return parameters
+        
+        # Always use first
+        previous = previous_user_info.first()
+        
+        previous.billing_district=request.data.get("billing_district")
+        previous.billing_city=request.data.get("billing_city")
+        previous.billing_address=request.data.get("billing_address")
+        previous.billing_country_iso2=request.data.get("billing_country")
+        previous.id_number=id_number
+        previous.id_option=request.data.get("id_option")
+        previous.id_other=request.data.get("id_other")
+        previous.basket=basket
+        previous.first_name=request.data.get("first_name")
+        previous.last_name_1=request.data.get("last_name_1")
+        previous.last_name_2=request.data.get("last_name_2")
+        previous.save()
 
         return parameters
+        
 
     def handle_processor_response(self, response, basket):
         """
