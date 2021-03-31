@@ -101,3 +101,40 @@ class BoletaTests(TestCase):
         )
         self.assertRaises(boleta.BoletaElectronicaException, 
             boleta.authenticate_boleta_electronica, basket=self.basket)
+
+    @responses.activate
+    def test_boleta_success(self):
+        responses.add(
+            method=responses.POST,
+            url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/authorization-token',
+            json={"access_token": "test", "codigoSII": "codigo sucursal", "repCodigo": "codigo reparticion"}
+        )
+
+        self.make_billing_info_helper('0', 'CL')
+
+        auth = boleta.authenticate_boleta_electronica()
+
+        responses.add(
+            method=responses.POST,
+            url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/ventas',
+            json={"id": "id"}
+        )
+
+        responses.add(
+            method=responses.GET,
+            url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/ventas/id',
+            json={
+                "boleta": {
+                    "fechaEmision": "2020-03-01T00:00:00",
+                    "folio": "folio"
+                },
+                "recaudaciones": [{"monto": int(self.order.total_incl_tax)}]
+            }
+        )
+
+
+        with override_settings(BOLETA_CONFIG=self.boleta_settings):
+            self.assertEqual("id", boleta.make_boleta_electronica(self.basket, self.order, auth)["id"])
+            # If anything went wrong this would throw an exception
+            boleta_o = BoletaElectronica.objects.get(basket=self.basket)
+            billing_info = UserBillingInfo.objects.get(basket=self.basket,boleta=boleta_o)

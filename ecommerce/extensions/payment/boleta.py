@@ -294,7 +294,7 @@ def make_boleta_electronica(basket, order, auth, configuration=default_config):
         config_ventas_url, voucher_id)
 
     try:
-        boleta_details = get_boleta_details(voucher_id, headers)
+        boleta_details = get_boleta_details(voucher_id, header)
     except BoletaElectronicaException:
         # Empty details; do not lock and retry later
         logger.warn("Couldn't recover info for boleta {}".format(voucher_id))
