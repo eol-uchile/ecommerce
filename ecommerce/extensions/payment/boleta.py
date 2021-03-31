@@ -293,6 +293,19 @@ def make_boleta_electronica(basket, order, auth, configuration=default_config):
     voucher_url = '{}/ventas/{}/boletas/pdf'.format(
         config_ventas_url, voucher_id)
 
+    boleta = BoletaElectronica(
+        basket=basket,
+        receipt_url=voucher_url,
+        voucher_id=voucher_id,
+    )
+    boleta.save()
+
+    billing_info.boleta = boleta
+    billing_info.save()
+
+    if settings.BOLETA_CONFIG.get("send_boleta_email",False):
+        send_boleta_email(basket=basket)
+    
     try:
         boleta_details = get_boleta_details(voucher_id, header)
     except BoletaElectronicaException:
@@ -305,19 +318,10 @@ def make_boleta_electronica(basket, order, auth, configuration=default_config):
     else:
         emission_date = datetime.fromisoformat(boleta_details["boleta"]["fechaEmision"])
 
-    boleta = BoletaElectronica(
-        basket=basket, receipt_url=voucher_url, voucher_id=voucher_id,
-        folio=boleta_details["boleta"].get("folio",""),
-        emission_date=emission_date,
-        amount=int(boleta_details["recaudaciones"][0].get("monto",0)),
-    )
+    boleta.folio = boleta_details["boleta"].get("folio","")
+    boleta.emission_date = emission_date
+    boleta.amount = int(boleta_details["recaudaciones"][0].get("monto",0))
     boleta.save()
-
-    billing_info.boleta = boleta
-    billing_info.save()
-
-    if settings.BOLETA_CONFIG.get("send_boleta_email",False):
-        send_boleta_email(basket=basket)
 
     return {
         'id': voucher_id,
@@ -329,7 +333,7 @@ def get_boleta_details(id, auth_headers, configuration=default_config):
     """
     Recovers boleta data like
     - boleta (folio, timestamp)
-    -recaudaciones (amount)
+    - recaudaciones (amount)
     Returns:
         JSON response
     Raises:
