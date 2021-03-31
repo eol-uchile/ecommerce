@@ -34,10 +34,16 @@ class Command(BaseCommand):
         failed = 0
 
         # Get payed orders
-        orders = Order.objects.filter(status="Complete")
+        orders = Order.objects.filter(status="Complete", basket__boletaelectronica=None)
 
         for order in orders:
             try:
+                # We re-check if there is a boleta associated to the basket via the userbillinginfo
+                used_info = UserBillingInfo.objects.filter(basket=order.basket).exclude(boleta=None)
+                if used_info.count() > 0:
+                    logger.warn("Order {} is complete, but without the proper association with it's boleta {}".format(order.number, used_info.first().boleta))
+                    continue
+
                 # Get not used billing info 
                 # Each basket is unique and should only have 
                 # one user billing info object. 
@@ -45,12 +51,11 @@ class Command(BaseCommand):
                 info = UserBillingInfo.objects.filter(basket=order.basket, boleta=None)
                 info_count = info.count()
                 if info_count > 1:
-                    logger.warn("UserBillingInfo counts {}".format(info_count))
+                    logger.warn("UserBillingInfo counts {} for order {}, using first".format(info_count, order.number))
                 elif info_count == 0:
-                    # What!? someone did a manual operation somewhere
-                    # Account for this
-                    logger.warn("UserBillingInfo counts a 0 for a completed order. Did you manualy complete the order? Skipping")
+                    # If somehow this happens
                     continue
+
                 info = info.first()
                 basket = info.basket
                 basket.strategy = strategy.Default()
