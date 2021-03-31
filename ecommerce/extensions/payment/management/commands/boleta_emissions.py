@@ -34,7 +34,7 @@ class Command(BaseCommand):
         failed = 0
 
         # Get payed orders
-        orders = Order.objects.filter(status="Complete", basket__boletaelectronica=None)
+        orders = Order.objects.filter(status="Complete", basket__boletaelectronica=None, total_incl_tax__gt=0)
 
         for order in orders:
             try:
