@@ -41,7 +41,7 @@ class OrderPlacer(EdxOrderPlacementMixin):
             ).exclude(basket=None)
         responses_count = responses.count()
         if responses_count > 1:
-            logger.warn("Got {} processor responses, using first to recover basket".format(responses_count))
+            logger.warning("Got {} processor responses, using first to recover basket".format(responses_count))
         elif responses_count == 0:
             logger.error("Got {} processor responses, using first to recover basket".format(responses_count))
             raise Exception("No responses found for order number {}".format(order_number))

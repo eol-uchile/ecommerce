@@ -310,7 +310,7 @@ def make_boleta_electronica(basket, order, auth, configuration=default_config):
         boleta_details = get_boleta_details(voucher_id, header)
     except BoletaElectronicaException:
         # Empty details; do not lock and retry later
-        logger.warn("Couldn't recover info for boleta {}".format(voucher_id))
+        logger.warning("Couldn't recover info for boleta {}".format(voucher_id))
         boleta_details = {"boleta": {}, "recaudaciones": [{}]}
 
     if boleta_details["boleta"].get("fechaEmision",None) == None:

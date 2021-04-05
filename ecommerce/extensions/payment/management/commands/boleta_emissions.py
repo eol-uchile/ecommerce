@@ -41,7 +41,7 @@ class Command(BaseCommand):
                 # We re-check if there is a boleta associated to the basket via the userbillinginfo
                 used_info = UserBillingInfo.objects.filter(basket=order.basket).exclude(boleta=None)
                 if used_info.count() > 0:
-                    logger.warn("Order {} is complete, but without the proper association with it's boleta {}".format(order.number, used_info.first().boleta))
+                    logger.warning("Order {} is complete, but without the proper association with it's boleta {}".format(order.number, used_info.first().boleta))
                     continue
 
                 # Get not used billing info 
@@ -51,7 +51,7 @@ class Command(BaseCommand):
                 info = UserBillingInfo.objects.filter(basket=order.basket, boleta=None)
                 info_count = info.count()
                 if info_count > 1:
-                    logger.warn("UserBillingInfo counts {} for order {}, using first".format(info_count, order.number))
+                    logger.warning("UserBillingInfo counts {} for order {}, using first".format(info_count, order.number))
                 elif info_count == 0:
                     # If somehow this happens
                     continue

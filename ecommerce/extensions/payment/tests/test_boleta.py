@@ -47,14 +47,14 @@ class BoletaTests(BoletaMixin, TestCase):
         self.add_boleta_auth()
         self.assertEqual({"access_token": "test", "codigoSII": "codigo sucursal", "repCodigo": "codigo reparticion"},
                          authenticate_boleta_electronica(basket=self.basket))
-        self.assertEquals(0, self.count_boleta_errors())
+        self.assertEqual(0, self.count_boleta_errors())
 
     @responses.activate
     def test_authenticate_fail(self):
         self.add_boleta_auth_refused()
         self.assertRaises(BoletaElectronicaException,
                           authenticate_boleta_electronica, basket=self.basket)
-        self.assertEquals(1, self.count_boleta_errors())
+        self.assertEqual(1, self.count_boleta_errors())
 
     def test_raise_boleta_error(self):
         Dummy_response = namedtuple(
@@ -76,7 +76,7 @@ class BoletaTests(BoletaMixin, TestCase):
         response = Dummy_response("error", None, 404)
         self.assertRaises(BoletaElectronicaException, raise_boleta_error,
                           response, Exception("test"), True, "UA-001")
-        self.assertEquals(1, BoletaErrorMessage.objects.all().count())
+        self.assertEqual(1, BoletaErrorMessage.objects.all().count())
 
     def test_raise_boleta_error_save_json(self):
         Dummy_response = namedtuple(
@@ -84,7 +84,7 @@ class BoletaTests(BoletaMixin, TestCase):
         response = Dummy_response("error", lambda: {'test': 0}, 404)
         self.assertRaises(BoletaElectronicaException, raise_boleta_error,
                           response, Exception("test"), True, "UA-001")
-        self.assertEquals(1, BoletaErrorMessage.objects.all().count())
+        self.assertEqual(1, BoletaErrorMessage.objects.all().count())
 
     @responses.activate
     def test_boleta_success(self):
@@ -119,7 +119,7 @@ class BoletaTests(BoletaMixin, TestCase):
             boleta_o = BoletaElectronica.objects.get(basket=self.basket)
             billing_info = UserBillingInfo.objects.get(
                 basket=self.basket, boleta=boleta_o)
-            self.assertEquals(0, BoletaErrorMessage.objects.all().count())
+            self.assertEqual(0, BoletaErrorMessage.objects.all().count())
 
     @responses.activate
     def test_boleta_failure(self):
@@ -133,9 +133,9 @@ class BoletaTests(BoletaMixin, TestCase):
             self.assertRaises(BoletaElectronicaException,
                               make_boleta_electronica, self.basket, self.order, auth)
             # If anything went wrong this would throw an exception
-            self.assertEquals(0, BoletaElectronica.objects.all().count())
-            self.assertEquals(1, BoletaErrorMessage.objects.all().count())
-            self.assertEquals(None, UserBillingInfo.objects.get(
+            self.assertEqual(0, BoletaElectronica.objects.all().count())
+            self.assertEqual(1, BoletaErrorMessage.objects.all().count())
+            self.assertEqual(None, UserBillingInfo.objects.get(
                 basket=self.basket).boleta)
 
     @responses.activate
@@ -145,7 +145,7 @@ class BoletaTests(BoletaMixin, TestCase):
         auth = authenticate_boleta_electronica()
 
         with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
-            self.assertEquals({
+            self.assertEqual({
                 "boleta": {
                     "fechaEmision": "2020-03-01T00:00:00",
                     "folio": "folio"
