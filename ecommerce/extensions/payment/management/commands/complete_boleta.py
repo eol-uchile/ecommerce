@@ -28,14 +28,17 @@ class Command(BaseCommand):
       boletas = []
       for b_id in options["list"]:
         try:
-          boleta.append( BoletaElectronica.objects.get(voucher_id=b_id))
+          boletas.append( BoletaElectronica.objects.get(voucher_id=b_id))
         except Exception:
           logger.exception("Error getting boleta electronica {}. Skipping ...".format(b_id))
+      if len(boletas) == 0:
+        logger.info("No Boletas to complete")
+        return
     else:
       boletas = BoletaElectronica.objects.filter(emission_date=None, folio="")
-    if boletas.count() == 0:
-      logger.info("No Boletas to complete")
-      return
+      if boletas.count() == 0:
+        logger.info("No Boletas to complete")
+        return
     
     # Complete each boleta's info
     for boleta in boletas:

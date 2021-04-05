@@ -39,8 +39,12 @@ class OrderPlacer(EdxOrderPlacementMixin):
                 processor_name=self.payment_processor_name,
                 transaction_id=self.order_number
             ).exclude(basket=None)
-        if responses.count() > 1:
-            logger.warn("Got {} processor responses, using first to recover basket".format(responses.count()))
+        responses_count = responses.count()
+        if responses_count > 1:
+            logger.warn("Got {} processor responses, using first to recover basket".format(responses_count))
+        elif responses_count == 0:
+            logger.error("Got {} processor responses, using first to recover basket".format(responses_count))
+            raise Exception("No responses found for order number {}".format(order_number))
     
         basket = responses.first().basket
         
@@ -149,5 +153,8 @@ class Command(BaseCommand):
 
         order_placer = OrderPlacer()
         for order in options["list"]:
-            order_placer.set_order_variables(order)
-            order_placer.fulfill_order()
+            try:
+                order_placer.set_order_variables(order)
+                order_placer.fulfill_order()
+            except Exception as e:
+                logger.exception("Error processing order {}".format(order))

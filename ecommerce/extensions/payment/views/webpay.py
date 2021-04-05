@@ -99,21 +99,16 @@ class WebpayPaymentNotificationView(EdxOrderPlacementMixin, View):
         try:
             payment = self.payment_processor.get_transaction_data(token)
             if not payment:
-                logger.error("Error fetching Webpay details from token [%s]", token)
-                self.send_simple_alert_to_eol(request.site,"Hubo un error al obtener los detalles desde Webpay. ")
-                raise Http404("Hubo un error al obtener los detalles desde Webpay.")
+                raise Exception("No payment response received")
         except Exception as e:
             self.send_simple_alert_to_eol(request.site,"Hubo un error al obtener los detalles desde Webpay. ")
             logger.exception("Error receiving payment {} {}".format(request.POST, e))
-            
             raise Http404("Hubo un error al obtener los detalles desde Webpay.")
 
         try:
             basket = self._get_basket(payment['buy_order'])
             if not basket:
-                logger.error("Basket not found for payment [%s]", payment['buy_order'])
-                self.send_simple_alert_to_eol(request.site,"El carrito solicitado no existe. ", order_number=payment['buy_order'])
-                raise Http404("El carrito solicitado no existe.")
+                raise Exception("Basket not found for payment [%s]", payment['buy_order'])
         except KeyError:
             logger.exception("Webpay Error, response doesn't have a buy_order because the token is invalid")
             #raise Http404("La petición fue cancelada por Webpay. No se ha realizado ningún cobro.")
