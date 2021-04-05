@@ -10,55 +10,11 @@ from ecommerce.extensions.payment.models import UserBillingInfo, BoletaElectroni
 
 from ecommerce.tests.testcases import TestCase
 from ecommerce.extensions.test.factories import create_basket, create_order
+from ecommerce.extensions.payment.tests.mixins import BoletaMixin
 
 
-class BoletaTests(TestCase):
-
-    boleta_settings = {
-        "enabled": True,
-        "send_boleta_email": False,
-        "generate_on_payment": True,
-        "team_email": "test@localhost",
-        "halt_on_boleta_failure": True,
-        "client_id": "secret",
-        "client_secret": "secret",
-        "client_scope": "dte:tdo",
-        "config_centro_costos": "secret",
-        "config_cuenta_contable": "secret",
-        "config_sucursal": "secret",
-        "config_reparticion": "secret",
-        "config_identificador_pos": "secret",
-        "config_ventas_url": "https://ventas-test.uchile.cl/ventas-api-front/api/v1",
-    }
-
-    billing_info_form = {
-        "billing_district": "district",
-        "billing_city": "city",
-        "billing_address": "address",
-        "billing_country": "CL",
-        "id_number": "1-9",
-        "id_option": "0",
-        "id_other": "",
-        "first_name": "first_name last_name",
-        "last_name_1": "last_name_1",
-        "last_name_2": "",
-    }
-
-    def make_billing_info_helper(self, id_type, country_code):
-        billing_info = UserBillingInfo(
-            billing_district="district",
-            billing_city="city",
-            billing_address="address",
-            billing_country_iso2=country_code,
-            id_number="1-9",
-            id_option=id_type,
-            id_other="",
-            first_name="name name",
-            last_name_1="last name",
-            basket=self.basket
-        )
-        billing_info.save()
-
+class BoletaTests(BoletaMixin, TestCase):
+    
     def count_boleta_errors(self):
         return BoletaErrorMessage.objects.all().count()
 
@@ -67,34 +23,6 @@ class BoletaTests(TestCase):
         for i in range(number):
             s = s + 'a'
         return s
-
-    def add_auth_to_responses(self):
-        responses.add(
-            method=responses.POST,
-            url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/authorization-token',
-            json={"access_token": "test", "codigoSII": "codigo sucursal",
-                  "repCodigo": "codigo reparticion"}
-        )
-
-    def add_boleta_creation_to_responses(self):
-        responses.add(
-            method=responses.POST,
-            url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/ventas',
-            json={"id": "id"}
-        )
-
-    def add_boleta_details_to_responses(self):
-        responses.add(
-            method=responses.GET,
-            url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/ventas/id',
-            json={
-                "boleta": {
-                    "fechaEmision": "2020-03-01T00:00:00",
-                    "folio": "folio"
-                },
-                "recaudaciones": [{"monto": int(self.order.total_incl_tax)}]
-            }
-        )
 
     def setUp(self):
         self.basket = create_basket(price="10.0")
@@ -116,24 +44,14 @@ class BoletaTests(TestCase):
 
     @responses.activate
     def test_authenticate_success(self):
-        responses.add(
-            method=responses.POST,
-            url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/authorization-token',
-            json={"access_token": "test", "codigoSII": "codigo sucursal",
-                  "repCodigo": "codigo reparticion"}
-        )
+        self.add_boleta_auth()
         self.assertEqual({"access_token": "test", "codigoSII": "codigo sucursal", "repCodigo": "codigo reparticion"},
                          authenticate_boleta_electronica(basket=self.basket))
         self.assertEquals(0, self.count_boleta_errors())
 
     @responses.activate
     def test_authenticate_fail(self):
-        responses.add(
-            method=responses.POST,
-            url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/authorization-token',
-            json={"message": "error auth"},
-            status=403
-        )
+        self.add_boleta_auth_refused()
         self.assertRaises(BoletaElectronicaException,
                           authenticate_boleta_electronica, basket=self.basket)
         self.assertEquals(1, self.count_boleta_errors())
@@ -170,14 +88,14 @@ class BoletaTests(TestCase):
 
     @responses.activate
     def test_boleta_success(self):
-        self.add_auth_to_responses()
-        self.add_boleta_creation_to_responses()
-        self.add_boleta_details_to_responses()
-        self.make_billing_info_helper('0', 'CL')
+        self.add_boleta_auth()
+        self.add_boleta_creation()
+        self.add_boleta_details(self.order.total_incl_tax)
+        self.make_billing_info_helper('0', 'CL', self.basket)
 
         auth = authenticate_boleta_electronica()
 
-        with override_settings(BOLETA_CONFIG=self.boleta_settings):
+        with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
             self.assertEqual("id", make_boleta_electronica(
                 self.basket, self.order, auth)["id"])
             # If anything went wrong this would throw an exception
@@ -187,18 +105,14 @@ class BoletaTests(TestCase):
 
     @responses.activate
     def test_boleta_success_no_details(self):
-        self.add_auth_to_responses()
-        self.add_boleta_creation_to_responses()
-        responses.add(
-            method=responses.GET,
-            url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/ventas/id',
-            status=500
-        )
-        self.make_billing_info_helper('0', 'CL')
+        self.add_boleta_auth()
+        self.add_boleta_creation()
+        self.add_boleta_details_404()
+        self.make_billing_info_helper('0', 'CL', self.basket)
 
         auth = authenticate_boleta_electronica()
 
-        with override_settings(BOLETA_CONFIG=self.boleta_settings):
+        with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
             self.assertEqual("id", make_boleta_electronica(
                 self.basket, self.order, auth)["id"])
             # If anything went wrong this would throw an exception
@@ -209,17 +123,13 @@ class BoletaTests(TestCase):
 
     @responses.activate
     def test_boleta_failure(self):
-        self.add_auth_to_responses()
-        responses.add(
-            method=responses.POST,
-            url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/ventas',
-            status=500
-        )
-        self.make_billing_info_helper('0', 'CL')
+        self.add_boleta_auth()
+        self.add_boleta_creation_500()
+        self.make_billing_info_helper('0', 'CL', self.basket)
 
         auth = authenticate_boleta_electronica()
 
-        with override_settings(BOLETA_CONFIG=self.boleta_settings):
+        with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
             self.assertRaises(BoletaElectronicaException,
                               make_boleta_electronica, self.basket, self.order, auth)
             # If anything went wrong this would throw an exception
@@ -230,11 +140,11 @@ class BoletaTests(TestCase):
 
     @responses.activate
     def test_get_boleta_details(self):
-        self.add_auth_to_responses()
-        self.add_boleta_details_to_responses()
+        self.add_boleta_auth()
+        self.add_boleta_details(self.order.total_incl_tax)
         auth = authenticate_boleta_electronica()
 
-        with override_settings(BOLETA_CONFIG=self.boleta_settings):
+        with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
             self.assertEquals({
                 "boleta": {
                     "fechaEmision": "2020-03-01T00:00:00",
@@ -247,16 +157,11 @@ class BoletaTests(TestCase):
 
     @responses.activate
     def test_get_boleta_details_error(self):
-        self.add_auth_to_responses()
+        self.add_boleta_auth()
         auth = authenticate_boleta_electronica()
+        self.add_boleta_details_404()
 
-        responses.add(
-            method=responses.GET,
-            url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/ventas/id',
-            status=404
-        )
-
-        with override_settings(BOLETA_CONFIG=self.boleta_settings):
+        with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
             self.assertRaises(BoletaElectronicaException, get_boleta_details,
                               "id", {
                                   "Authorization": "Bearer " + auth["access_token"]

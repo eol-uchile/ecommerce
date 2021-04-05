@@ -2,6 +2,7 @@
 
 import os
 import re
+import responses
 from decimal import Decimal
 from urllib.parse import urljoin
 
@@ -27,6 +28,7 @@ from ecommerce.extensions.payment.exceptions import (
     InvalidSignatureError,
     RedundantPaymentNotificationError
 )
+from ecommerce.extensions.payment.models import UserBillingInfo
 from ecommerce.extensions.payment.helpers import sign
 from ecommerce.extensions.payment.processors.cybersource import Cybersource
 from ecommerce.extensions.test.factories import create_basket
@@ -992,3 +994,110 @@ class CyberSourceRESTAPIMixin:
             lambda x: x.group(1) + x.group(2).upper(),
             processor_json
         ).replace('links', '_links').replace('_self', 'self')
+
+
+class BoletaMixin:
+    """
+    Boleta Mixin that provides
+    - a standard settings override.
+    - a user billing info creation tool, that's necessary to create boletas.
+    - mock methods for the ventas API with standard responses.
+
+    Each tests that mocks a response requires the @responses.activate decorator
+    """
+
+    BOLETA_SETTINGS = {
+        "enabled": True,
+        "send_boleta_email": False,
+        "generate_on_payment": True,
+        "team_email": "test@localhost",
+        "halt_on_boleta_failure": True,
+        "client_id": "secret",
+        "client_secret": "secret",
+        "client_scope": "dte:tdo",
+        "config_centro_costos": "secret",
+        "config_cuenta_contable": "secret",
+        "config_sucursal": "secret",
+        "config_reparticion": "secret",
+        "config_identificador_pos": "secret",
+        "config_ventas_url": "https://ventas-test.uchile.cl/ventas-api-front/api/v1",
+    }
+
+    BILLING_INFO_FORM = {
+        "billing_district": "district",
+        "billing_city": "city",
+        "billing_address": "address",
+        "billing_country": "CL",
+        "id_number": "1-9",
+        "id_option": "0",
+        "id_other": "",
+        "first_name": "first_name last_name",
+        "last_name_1": "last_name_1",
+        "last_name_2": "",
+    }
+
+    def make_billing_info_helper(self, id_type, country_code, basket):
+        billing_info = UserBillingInfo(
+            billing_district="district",
+            billing_city="city",
+            billing_address="address",
+            billing_country_iso2=country_code,
+            id_number="1-9",
+            id_option=id_type,
+            id_other="",
+            first_name="name name",
+            last_name_1="last name",
+            basket=basket
+        )
+        billing_info.save()
+        return billing_info
+
+    def add_boleta_auth(self):
+        responses.add(
+            method=responses.POST,
+            url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/authorization-token',
+            json={"access_token": "test", "codigoSII": "codigo sucursal",
+                  "repCodigo": "codigo reparticion"}
+        )
+
+    def add_boleta_creation(self, boleta_id="id"):
+        responses.add(
+            method=responses.POST,
+            url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/ventas',
+            json={"id": boleta_id}
+        )
+
+    def add_boleta_details(self, total):
+        responses.add(
+            method=responses.GET,
+            url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/ventas/id',
+            json={
+                "boleta": {
+                    "fechaEmision": "2020-03-01T00:00:00",
+                    "folio": "folio"
+                },
+                "recaudaciones": [{"monto": int(total)}]
+            }
+        )
+
+    def add_boleta_auth_refused(self):
+        responses.add(
+            method=responses.POST,
+            url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/authorization-token',
+            json={"message": "error auth"},
+            status=403
+        )
+
+    def add_boleta_creation_500(self):
+        responses.add(
+            method=responses.POST,
+            url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/ventas',
+            status=500
+        )
+
+    def add_boleta_details_404(self, boleta_id="id"):
+        responses.add(
+            method=responses.GET,
+            url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/ventas/{}'.format(boleta_id),
+            status=404
+        )

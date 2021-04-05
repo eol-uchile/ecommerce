@@ -116,7 +116,8 @@ class WebpayPaymentNotificationView(EdxOrderPlacementMixin, View):
                 raise Http404("El carrito solicitado no existe.")
         except KeyError:
             logger.exception("Webpay Error, response doesn't have a buy_order because the token is invalid")
-            raise Http404("La petición fue cancelada por Webpay. No se ha realizado ningún cobro.")
+            #raise Http404("La petición fue cancelada por Webpay. No se ha realizado ningún cobro.")
+            return redirect(reverse('checkout:cancel-checkout'))
         except Exception as e:  # pylint: disable=broad-except
             logger.exception("Error receiving payment {} {}".format(request.POST, e))
             self.send_simple_alert_to_eol(request.site,"El carrito solicitado no existe. ", order_number=payment['buy_order'])

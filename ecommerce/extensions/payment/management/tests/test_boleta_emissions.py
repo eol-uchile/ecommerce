@@ -10,72 +10,13 @@ from ecommerce.tests.testcases import TestCase
 from ecommerce.extensions.fulfillment.status import ORDER
 from ecommerce.extensions.payment.models import BoletaElectronica, UserBillingInfo
 from ecommerce.extensions.test.factories import create_basket, create_order
+from ecommerce.extensions.payment.tests.mixins import BoletaMixin
 
 
-class TestBoletaEmissionsCommand(TestCase):
-
-    boleta_settings = {
-        "enabled": True,
-        "send_boleta_email": False,
-        "generate_on_payment": True,
-        "team_email": "test@localhost",
-        "halt_on_boleta_failure": True,
-        "client_id": "secret",
-        "client_secret": "secret",
-        "client_scope": "dte:tdo",
-        "config_centro_costos": "secret",
-        "config_cuenta_contable": "secret",
-        "config_sucursal": "secret",
-        "config_reparticion": "secret",
-        "config_identificador_pos": "secret",
-        "config_ventas_url": "https://ventas-test.uchile.cl/ventas-api-front/api/v1",
-    }
-
-    def make_billing_info_helper(self, id_type, country_code):
-        self.billing_info = UserBillingInfo(
-            billing_district="district",
-            billing_city="city",
-            billing_address="address",
-            billing_country_iso2=country_code,
-            id_number="1-9",
-            id_option=id_type,
-            id_other="",
-            first_name="name name",
-            last_name_1="last name",
-            basket=self.basket
-        )
-        self.billing_info.save()
+class TestBoletaEmissionsCommand(BoletaMixin, TestCase):
 
     def count_boletas(self):
         return BoletaElectronica.objects.all().count()
-
-    def add_auth_to_responses(self):
-        responses.add(
-            method=responses.POST,
-            url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/authorization-token',
-            json={"access_token": "test", "codigoSII": "codigo sucursal",
-                  "repCodigo": "codigo reparticion"}
-        )
-
-    def add_boleta_creation_to_responses(self):
-        responses.add(
-            method=responses.POST,
-            url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/ventas',
-            json={"id": "id"}
-        )
-
-    def add_boleta_details_to_responses(self):
-        responses.add(
-            method=responses.GET,
-            url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/ventas/id',
-            json={
-                "boleta": {
-                    "fechaEmision": "2020-03-01T00:00:00",
-                    "folio": "folio"
-                },
-                "recaudaciones": [{"monto": int(self.order.total_incl_tax)}]
-            }
-        )
 
     def setUp(self):
         self.stdout = StringIO()
@@ -94,12 +35,12 @@ class TestBoletaEmissionsCommand(TestCase):
         Unused basket, order asociated to basket, no billing_info
         """
         # Open order, no UBI
-        with override_settings(BOLETA_CONFIG=self.boleta_settings):
+        with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
             self.call_command_action()
             self.assertEqual(0, self.count_boletas())
 
             # Add UBI associated to basket but without boleta
-            self.make_billing_info_helper('0', 'CL')
+            self.billing_info = self.make_billing_info_helper('0', 'CL',self.basket)
             self.call_command_action()
             self.assertEqual(0, self.count_boletas())
 
@@ -114,15 +55,15 @@ class TestBoletaEmissionsCommand(TestCase):
 
     @responses.activate
     def test_emissions_on_complete_order(self):
-        self.make_billing_info_helper('0', 'CL')
+        self.make_billing_info_helper('0', 'CL',self.basket)
         self.order.status = ORDER.COMPLETE
         self.order.save()
 
-        self.add_auth_to_responses()
-        self.add_boleta_creation_to_responses()
-        self.add_boleta_details_to_responses()
+        self.add_boleta_auth()
+        self.add_boleta_creation()
+        self.add_boleta_details(self.order.total_incl_tax)
 
-        with override_settings(BOLETA_CONFIG=self.boleta_settings):
+        with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
             self.call_command_action()
             self.assertEqual(1, self.count_boletas())
             # Test idempotency
@@ -131,14 +72,14 @@ class TestBoletaEmissionsCommand(TestCase):
 
     @responses.activate
     def test_emissions_on_complete_order_without_details(self):
-        self.make_billing_info_helper('0', 'CL')
+        self.make_billing_info_helper('0', 'CL',self.basket)
         self.order.status = ORDER.COMPLETE
         self.order.save()
 
-        self.add_auth_to_responses()
-        self.add_boleta_creation_to_responses()
+        self.add_boleta_auth()
+        self.add_boleta_creation()
 
-        with override_settings(BOLETA_CONFIG=self.boleta_settings):
+        with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
             self.call_command_action()
             self.assertEqual(1, self.count_boletas())
             # Test idempotency
@@ -147,7 +88,7 @@ class TestBoletaEmissionsCommand(TestCase):
 
     @responses.activate
     def test_no_emissions_with_free_order(self):
-        self.make_billing_info_helper('0', 'CL')
+        self.make_billing_info_helper('0', 'CL',self.basket)
         self.order.status = ORDER.COMPLETE
         self.order.total_incl_tax = 0
         self.order.save()
@@ -155,7 +96,7 @@ class TestBoletaEmissionsCommand(TestCase):
         product.price_incl_tax = 0
         product.save()
 
-        with override_settings(BOLETA_CONFIG=self.boleta_settings):
+        with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
             self.call_command_action()
             self.assertEqual(0, self.count_boletas())
             # Test idempotency
@@ -164,9 +105,9 @@ class TestBoletaEmissionsCommand(TestCase):
 
     @responses.activate
     def test_no_emissions_with_no_valid_orders(self):
-        self.make_billing_info_helper('0', 'CL')
+        self.make_billing_info_helper('0', 'CL',self.basket)
 
-        with override_settings(BOLETA_CONFIG=self.boleta_settings):
+        with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
             self.order.status = ORDER.FULFILLMENT_ERROR
             self.order.save()
             self.call_command_action()
@@ -189,34 +130,26 @@ class TestBoletaEmissionsCommand(TestCase):
 
     @responses.activate
     def test_no_emissions_on_api_403(self):
-        self.make_billing_info_helper('0', 'CL')
+        self.make_billing_info_helper('0', 'CL',self.basket)
         self.order.status = ORDER.COMPLETE
         self.order.save()
 
-        responses.add(
-            method=responses.POST,
-            url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/authorization-token',
-            status=403
-        )
+        self.add_boleta_auth_refused()
 
-        with override_settings(BOLETA_CONFIG=self.boleta_settings):
+        with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
             self.call_command_action()
             self.assertEqual(0, self.count_boletas())
 
     @responses.activate
     def test_no_emissions_on_api_error(self):
-        self.make_billing_info_helper('0', 'CL')
+        self.make_billing_info_helper('0', 'CL',self.basket)
         self.order.status = ORDER.COMPLETE
         self.order.save()
 
-        self.add_auth_to_responses()
-        responses.add(
-            method=responses.POST,
-            url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/ventas',
-            status=500
-        )
+        self.add_boleta_auth()
+        self.add_boleta_creation_500()
 
-        with override_settings(BOLETA_CONFIG=self.boleta_settings):
+        with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
             self.call_command_action()
             self.assertEqual(0, self.count_boletas())
             # Test idempotency
@@ -225,18 +158,18 @@ class TestBoletaEmissionsCommand(TestCase):
 
     @responses.activate
     def test_no_emissions_without_folios_412(self):
-        self.make_billing_info_helper('0', 'CL')
+        self.make_billing_info_helper('0', 'CL',self.basket)
         self.order.status = ORDER.COMPLETE
         self.order.save()
 
-        self.add_auth_to_responses()
+        self.add_boleta_auth()
         responses.add(
             method=responses.POST,
             url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/ventas',
             status=412
         )
 
-        with override_settings(BOLETA_CONFIG=self.boleta_settings):
+        with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
             self.call_command_action()
             self.assertEqual(0, self.count_boletas())
             # Test idempotency
@@ -250,15 +183,15 @@ class TestBoletaEmissionsCommand(TestCase):
         it wasn't correctly saved for our workflow we need to 
         account for 
         """
-        self.make_billing_info_helper('0', 'CL')
+        self.make_billing_info_helper('0', 'CL',self.basket)
         self.order.status = ORDER.COMPLETE
         self.order.save()
 
-        self.add_auth_to_responses()
-        self.add_boleta_creation_to_responses()
-        self.add_boleta_details_to_responses()
+        self.add_boleta_auth()
+        self.add_boleta_creation()
+        self.add_boleta_details(self.order.total_incl_tax)
 
-        with override_settings(BOLETA_CONFIG=self.boleta_settings):
+        with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
             # Fulfill
             self.call_command_action()
             self.assertEqual(1, self.count_boletas())
@@ -275,16 +208,16 @@ class TestBoletaEmissionsCommand(TestCase):
     @responses.activate
     def test_emit_one_boleta_on_userbillingifo_duplicates(self):
 
-        self.make_billing_info_helper('0', 'CL')
-        self.make_billing_info_helper('0', 'CL')
+        self.make_billing_info_helper('0', 'CL',self.basket)
+        self.make_billing_info_helper('0', 'CL',self.basket)
         self.order.status = ORDER.COMPLETE
         self.order.save()
 
-        self.add_auth_to_responses()
-        self.add_boleta_creation_to_responses()
-        self.add_boleta_details_to_responses()
+        self.add_boleta_auth()
+        self.add_boleta_creation()
+        self.add_boleta_details(self.order.total_incl_tax)
 
-        with override_settings(BOLETA_CONFIG=self.boleta_settings):
+        with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
             self.call_command_action()
             self.assertEqual(1, self.count_boletas())
             # Idempotency
@@ -293,27 +226,27 @@ class TestBoletaEmissionsCommand(TestCase):
 
     @responses.activate
     def test_dry_run_emissions_on_complete_order(self):
-        self.make_billing_info_helper('0', 'CL')
+        self.make_billing_info_helper('0', 'CL',self.basket)
         self.order.status = ORDER.COMPLETE
         self.order.save()
 
-        self.add_auth_to_responses()
-        self.add_boleta_creation_to_responses()
-        self.add_boleta_details_to_responses()
+        self.add_boleta_auth()
+        self.add_boleta_creation()
+        self.add_boleta_details(self.order.total_incl_tax)
 
-        with override_settings(BOLETA_CONFIG=self.boleta_settings):
+        with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
             self.call_command_action("--dry-run")
             self.assertEqual(0, self.count_boletas())
 
     @responses.activate
     def test_dry_run_emissions_on_complete_order_without_details(self):
-        self.make_billing_info_helper('0', 'CL')
+        self.make_billing_info_helper('0', 'CL',self.basket)
         self.order.status = ORDER.COMPLETE
         self.order.save()
 
-        self.add_auth_to_responses()
-        self.add_boleta_creation_to_responses()
+        self.add_boleta_auth()
+        self.add_boleta_creation()
 
-        with override_settings(BOLETA_CONFIG=self.boleta_settings):
+        with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
             self.call_command_action("--dry-run")
             self.assertEqual(0, self.count_boletas())

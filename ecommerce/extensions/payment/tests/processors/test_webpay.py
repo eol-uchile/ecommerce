@@ -9,31 +9,16 @@ from ecommerce.extensions.test.factories import create_order
 from ecommerce.extensions.payment.exceptions import PartialAuthorizationError
 from ecommerce.extensions.payment.processors.webpay import Webpay, WebpayTransactionDeclined, WebpayRefundRequired
 from ecommerce.extensions.payment.tests.processors.mixins import PaymentProcessorTestCaseMixin
+from ecommerce.extensions.payment.tests.mixins import BoletaMixin
 from ecommerce.extensions.payment.models import UserBillingInfo, BoletaErrorMessage
 from ecommerce.extensions.payment.boleta import BoletaElectronicaException
 
-class WebpayTests(PaymentProcessorTestCaseMixin, TestCase):
+class WebpayTests(BoletaMixin, PaymentProcessorTestCaseMixin, TestCase):
     """Tests for the webpay payment processor."""
 
     processor_class = Webpay
     processor_name = "webpay"
 
-    boleta_settings = {
-        "enabled": True,
-        "send_boleta_email": False,
-        "generate_on_payment": True,
-        "team_email": "test@test.cl",
-        "halt_on_boleta_failure": True,
-        "client_id": "secret",
-        "client_secret": "secret",
-        "client_scope": "dte:tdo",
-        "config_centro_costos": "secret",
-        "config_cuenta_contable": "secret",
-        "config_sucursal": "secret",
-        "config_reparticion": "secret",
-        "config_identificador_pos": "secret",
-        "config_ventas_url": "https://ventas-test.uchile.cl/ventas-api-front/api/v1",
-    }
 
     billing_info_form = {
         "billing_district": "district",
@@ -130,7 +115,7 @@ class WebpayTests(PaymentProcessorTestCaseMixin, TestCase):
         )
         self.request.data = self.billing_info_form
 
-        with override_settings(BOLETA_CONFIG=self.boleta_settings):
+        with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
             self.assertRaises(GatewayError, self.processor.get_transaction_parameters,
                 self.basket, self.request)
 
@@ -231,7 +216,7 @@ class WebpayTests(PaymentProcessorTestCaseMixin, TestCase):
     @patch("django.core.mail.send_mail")
     def test_get_transaction_data_webpay_down(self, mock_send_mail):
         mock_send_mail.return_value = True
-        with override_settings(BOLETA_CONFIG=self.boleta_settings):
+        with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
             responses.add(  
                 method=responses.POST,
                 url='http://transbank:5000/transaction-status',
@@ -259,7 +244,7 @@ class WebpayTests(PaymentProcessorTestCaseMixin, TestCase):
     @patch("django.core.mail.send_mail")
     def test_commit_transaction_webpay_down(self, mock_send_mail):
         mock_send_mail.return_value = True
-        with override_settings(BOLETA_CONFIG=self.boleta_settings):
+        with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
             responses.add(  
                 method=responses.POST,
                 url='http://transbank:5000/get-transaction',
@@ -277,7 +262,7 @@ class WebpayTests(PaymentProcessorTestCaseMixin, TestCase):
     def test_boleta_emission_fail_connection_auth(self, mock_send_mail, mock_auth):
         mock_send_mail.return_value = True
 
-        with override_settings(BOLETA_CONFIG=self.boleta_settings):
+        with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
 
             # Create order and make boleta
             order = create_order(basket=self.basket)
@@ -293,7 +278,7 @@ class WebpayTests(PaymentProcessorTestCaseMixin, TestCase):
     def test_boleta_emission_fail_connection_post(self, mock_send_mail, mock_auth, mock_boleta):
         mock_send_mail.return_value = True
 
-        with override_settings(BOLETA_CONFIG=self.boleta_settings):
+        with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
 
             # Create order and make boleta
             order = create_order(basket=self.basket)
@@ -309,7 +294,7 @@ class WebpayTests(PaymentProcessorTestCaseMixin, TestCase):
     def test_boleta_emission_fail_boleta_API(self, mock_send_mail, mock_auth, mock_boleta):
         mock_send_mail.return_value = True
 
-        with override_settings(BOLETA_CONFIG=self.boleta_settings):
+        with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
 
             # Create order and make boleta
             order = create_order(basket=self.basket)
@@ -328,7 +313,7 @@ class WebpayTests(PaymentProcessorTestCaseMixin, TestCase):
     def test_boleta_emission_fail_unkown_error(self, mock_send_mail, mock_auth, mock_boleta):
         mock_send_mail.return_value = True
 
-        with override_settings(BOLETA_CONFIG=self.boleta_settings):
+        with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
 
             # Create order and make boleta
             order = create_order(basket=self.basket)

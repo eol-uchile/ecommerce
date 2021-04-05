@@ -146,7 +146,9 @@ class Webpay(BasePaymentProcessor):
             'token_ws': result['token'],
         }
 
-        # Overwrite userInfo
+        # Overwrite userInfo:
+        # sometimes the requests might duplicate
+        # and a previous info might exists
         previous_user_info = UserBillingInfo.objects.filter(basket=basket)
         previous_user_info_count = previous_user_info.count()
         if previous_user_info_count == 0:

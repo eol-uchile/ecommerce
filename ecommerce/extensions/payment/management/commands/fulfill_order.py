@@ -32,7 +32,7 @@ class OrderPlacer(EdxOrderPlacementMixin):
         self.payment_processor_name = "webpay"
 
     def set_order_variables(self, order_number):
-
+        
         self.order_number = order_number
 
         responses = PaymentProcessorResponse.objects.filter(
@@ -41,7 +41,7 @@ class OrderPlacer(EdxOrderPlacementMixin):
             ).exclude(basket=None)
         if responses.count() > 1:
             logger.warn("Got {} processor responses, using first to recover basket".format(responses.count()))
-
+    
         basket = responses.first().basket
         
         basket.strategy = strategy.Default()
@@ -71,6 +71,7 @@ class OrderPlacer(EdxOrderPlacementMixin):
             "token": token,
             "buy_order": self.order_number,
             "emitted": datetime.datetime.now().isoformat(),
+            "status": 'AUTHORIZED',
             "response_code": 0,
             "amount": self.basket.total_incl_tax,
         }
