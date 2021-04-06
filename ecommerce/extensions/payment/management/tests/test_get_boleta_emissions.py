@@ -15,29 +15,32 @@ from ecommerce.extensions.payment.tests.mixins import BoletaMixin
 
 class TestBoletaEmissionsCommand(BoletaMixin, TestCase):
 
-    def make_boletas(self, number=0, repeat=0):
+    DATE_1 = BoletaMixin.BOLETA_DATE
+
+    def make_boletas(self, number=0, repeat=1):
         boleta_responses = []
         for i in range(number):
             basket = create_basket(price="10.0")
             order = create_order(basket=basket)
 
             for j in range(repeat):
-                boleta_response.append({
+                boleta_responses.append({
                     "boleta": {
-                        "fechaEmision": "2020-03-01T00:00:00",
+                        "fechaEmision": self.DATE_1,
                         "folio": "folio"
                     },
                     "id": "{}-{}".format(i, j),
-                    "recaudaciones": [{"monto": int(order.total_incl_tax), "id": order.number}]
+                    "recaudaciones": [{"monto": int(order.total_incl_tax), "voucher": order.number}]
                 })
-                boleta = BoletaElectronica(
-                    amount=int(order.total_incl_tax),
-                    basket=basket,
-                    voucher_id="{}-{}".format(i, j),
-                    emission_date="2020-03-01T00:00:00",
-                    folio="folio"
-                )
-                boleta.save()
+                if j == 0:
+                    boleta = BoletaElectronica(
+                        amount=int(order.total_incl_tax),
+                        basket=basket,
+                        voucher_id="{}-{}".format(i, j),
+                        emission_date=self.DATE_1,
+                        folio="folio"
+                    )
+                    boleta.save()
 
         return boleta_responses
 
@@ -57,6 +60,90 @@ class TestBoletaEmissionsCommand(BoletaMixin, TestCase):
     @responses.activate
     def test_empty(self):
         with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
-            self.add_boleta_get_boletas_custom("2020-03-01T00:00:00", [])
-            self.call_command_action("2020-03-01T00:00:00")
+            self.add_boleta_auth()
+            self.add_boleta_get_boletas_custom(self.DATE_1, [])
+            self.add_boleta_get_boletas_custom(self.DATE_1, [], status="INGRESADA")
+            self.call_command_action(self.DATE_1)
             self.assertEqual(0, self.count_boletas())
+
+    @responses.activate
+    def test_one_to_one_match(self):
+        with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
+            one_boleta = self.make_boletas(number=1)
+            self.assertEqual(1, self.count_boletas())
+
+            self.add_boleta_auth()
+            self.add_boleta_get_boletas_custom(self.DATE_1, one_boleta)
+            self.add_boleta_get_boletas_custom(self.DATE_1, [], status="INGRESADA")
+            self.call_command_action(self.DATE_1)
+    
+    @responses.activate
+    def test_one_to_no_local_fail(self):
+        with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
+            one_boleta = self.make_boletas(number=1)
+            self.assertEqual(1, self.count_boletas())
+            BoletaElectronica.objects.all().delete()
+            self.assertEqual(0, self.count_boletas())
+
+            self.add_boleta_auth()
+            self.add_boleta_get_boletas_custom(self.DATE_1, one_boleta)
+            self.add_boleta_get_boletas_custom(self.DATE_1, [], status="INGRESADA")
+            self.assertRaises(CommandError, self.call_command_action, self.DATE_1)
+
+    @responses.activate
+    def test_two_to_one_fail(self):
+        with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
+            two_boletas = self.make_boletas(number=2)
+            self.assertEqual(2, self.count_boletas())
+            BoletaElectronica.objects.last().delete()
+            self.assertEqual(1, self.count_boletas())
+
+            self.add_boleta_auth()
+            self.add_boleta_get_boletas_custom(self.DATE_1, two_boletas)
+            self.add_boleta_get_boletas_custom(self.DATE_1, [], status="INGRESADA")
+            self.assertRaises(CommandError, self.call_command_action, self.DATE_1)
+
+    @responses.activate
+    def test_two_to_one_fail_v2(self):
+        with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
+            two_boletas = self.make_boletas(number=2)
+            self.assertEqual(2, self.count_boletas())
+            BoletaElectronica.objects.last().delete()
+            self.assertEqual(1, self.count_boletas())
+
+            self.add_boleta_auth()
+            self.add_boleta_get_boletas_custom(self.DATE_1, two_boletas, status="INGRESADA")
+            self.add_boleta_get_boletas_custom(self.DATE_1, [])
+            self.assertRaises(CommandError, self.call_command_action, self.DATE_1)
+    
+    @responses.activate
+    def test_two_to_three_local_fail(self):
+        with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
+            two_boletas = self.make_boletas(number=2)
+            self.assertEqual(2, self.count_boletas())
+            basket = create_basket(price="10.0")
+            order = create_order(basket=basket)
+            boleta = BoletaElectronica(
+                    amount=int(order.total_incl_tax),
+                    basket=basket,
+                    voucher_id="{}-{}".format(10, 4),
+                    emission_date=self.DATE_1,
+                    folio="folio"
+                )
+            boleta.save()
+
+            self.add_boleta_auth()
+            self.add_boleta_get_boletas_custom(self.DATE_1, two_boletas)
+            self.add_boleta_get_boletas_custom(self.DATE_1, [], status="INGRESADA")
+            self.assertRaises(CommandError, self.call_command_action, self.DATE_1)
+
+    @responses.activate
+    def test_two_duplicates_to_one_local_fail(self):
+        with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
+            two_boletas = self.make_boletas(number=1, repeat=2)
+            self.assertEqual(1, self.count_boletas())
+
+            self.add_boleta_auth()
+            self.add_boleta_get_boletas_custom(self.DATE_1, two_boletas)
+            self.add_boleta_get_boletas_custom(self.DATE_1, [], status="INGRESADA")
+            self.assertRaises(CommandError, self.call_command_action, self.DATE_1)

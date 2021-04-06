@@ -58,8 +58,10 @@ class Command(BaseCommand):
         # Pair order to (hopefully just one) hash boleta_ids
         for venta in raw_data:
             order_number = venta["recaudaciones"][0]["voucher"]
-            remote_boleta_orders[order_number] = remote_boleta_orders.get(
-                order_number, []).append(venta["id"])
+            prev = remote_boleta_orders.get(
+                order_number, [])
+            prev.append(venta["id"])
+            remote_boleta_orders[order_number] = prev
         # Count
         for boleta in remote_boleta_orders:
             if len(remote_boleta_orders[boleta]) > 1:
@@ -84,7 +86,7 @@ class Command(BaseCommand):
                 b = BoletaElectronica.objects.get(voucher_id=boleta_id)
             except BoletaElectronica.DoesNotExist:
                 not_recorded.append(boleta_id)
-        if len(not_recorded) == 0:
+        if len(not_recorded) != 0:
             logger.error("Some boletas are not registered on ecommerce but created at ventas API. Total {}".format(
                 len(not_recorded)))
             logger.info(not_recorded)
@@ -93,16 +95,17 @@ class Command(BaseCommand):
                     f.write("boleta\n{}".format("\n".join(not_recorded)))
             raise CommandError("Inconsistency detected")
 
-    def compare_remote_and_local_counts(self, order_boleta_pairs):
+    def compare_remote_and_local_counts(self, order_boleta_pairs, since):
         """
         Compare if remote and local counts match.
         Otherwise register errors and missing elements.
         """
         local = BoletaElectronica.objects.filter(
-            emission_date__gte=since).count()
-        if voucher_ids != local.count():
+            emission_date__gte=since)
+        local_count = local.count()
+        if len(order_boleta_pairs) != local_count:
             logger.error(
-                "Boleta count is inconsistent. Local {} - Remote {}".format(local_count, voucher_ids))
+                "Boleta count is inconsistent. Local {} - Remote {}".format(local_count, len(order_boleta_pairs)))
             remote_boleta_ids = [b[1] for b in order_boleta_pairs]
             local_boletas = [b.voucher_id for b in local]
             remote_boleta_ids.sort()
@@ -118,7 +121,7 @@ class Command(BaseCommand):
         parser.add_argument(
             "-s", "--save", action='store_true', help="Save to file")
 
-    def handle(self_true, *args, **options):
+    def handle(self, *args, **options):
         """
         Verify consistency in the following steps
         - Recover boletas from API with state INGRESADA and CONTABILIZADA
@@ -140,8 +143,8 @@ class Command(BaseCommand):
         headers = {
             "Authorization": "Bearer " + auth["access_token"]
         }
-        raw_boletas = get_boletas(headers, options["since"]).extend(
-            get_boletas(headers, options["since"], state="INGRESADA"))
+        raw_boletas = get_boletas(headers, options["since"])
+        raw_boletas.extend(get_boletas(headers, options["since"], state="INGRESADA"))
 
         # CHECK ZERO
         # Verify that counts are consistent
@@ -154,7 +157,7 @@ class Command(BaseCommand):
         # Process boletas and review duplicates
         grouped_boleta = self.look_for_duplicates(raw_boletas)
 
-        order_boleta_pairs = [(b, grouped_boleta[b]) for b in grouped_boleta]
+        order_boleta_pairs = [(b, grouped_boleta[b][0]) for b in grouped_boleta]
 
         # No duplicates so far
         # CHECK TWO:
@@ -163,7 +166,7 @@ class Command(BaseCommand):
 
         # CHECK THREE
         # Make sure the counts are correct
-        self.compare_remote_and_local_counts(order_boleta_pairs)
+        self.compare_remote_and_local_counts(order_boleta_pairs, options["since"])
 
         # They exists
         # All OK
