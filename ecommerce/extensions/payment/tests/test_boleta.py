@@ -184,7 +184,7 @@ class BoletaTests(BoletaMixin, TestCase):
                     "folio": "folio"
                 },
                 "id": "id",
-                "recaudaciones": [{"monto": int(self.order.total_incl_tax), "id": self.order.number}]
+                "recaudaciones": [{"monto": int(self.order.total_incl_tax), "voucher": self.order.number}]
             }], get_boletas({
                 "Authorization": "Bearer " + auth["access_token"]
             }, "2020-03-01T00:00:00"))
