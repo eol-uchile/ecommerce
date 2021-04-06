@@ -5,7 +5,7 @@ from collections import namedtuple
 from django.test import override_settings
 from ecommerce.extensions.payment.boleta import authenticate_boleta_electronica, \
     BoletaElectronicaException, BoletaSinFoliosException, make_paragraphs_200, \
-    make_boleta_electronica, get_boleta_details, recover_boleta, raise_boleta_error
+    make_boleta_electronica, get_boleta_details, recover_boleta, raise_boleta_error, get_boletas
 from ecommerce.extensions.payment.models import UserBillingInfo, BoletaElectronica, BoletaErrorMessage
 
 from ecommerce.tests.testcases import TestCase
@@ -166,3 +166,35 @@ class BoletaTests(BoletaMixin, TestCase):
                               "id", {
                                   "Authorization": "Bearer " + auth["access_token"]
                               })
+
+    @responses.activate
+    def test_get_boletas(self):
+        self.add_boleta_auth()
+        self.add_boleta_get_boletas(
+            "2020-03-01T00:00:00",
+            total=self.order.total_incl_tax,
+            order_number=self.order.number
+        )
+        auth = authenticate_boleta_electronica()
+
+        with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
+            self.assertEqual([{
+                "boleta": {
+                    "fechaEmision": "2020-03-01T00:00:00",
+                    "folio": "folio"
+                },
+                "recaudaciones": [{"monto": int(self.order.total_incl_tax), "id": self.order.number}]
+            }], get_boletas({
+                "Authorization": "Bearer " + auth["access_token"]
+            }, "2020-03-01T00:00:00"))
+
+    @responses.activate
+    def test_get_boletas_error(self):
+        self.add_boleta_auth()
+        auth = authenticate_boleta_electronica()
+        self.add_boleta_get_boletas_500("2020-03-01T00:00:00")
+
+        with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
+            self.assertRaises(BoletaElectronicaException, get_boletas, {
+                "Authorization": "Bearer " + auth["access_token"]
+            }, "2020-03-01T00:00:00")

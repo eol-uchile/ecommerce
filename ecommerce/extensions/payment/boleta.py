@@ -351,6 +351,31 @@ def get_boleta_details(id, auth_headers, configuration=default_config):
         raise_boleta_error(error_response, e)
     return result.json()
 
+def get_boletas(auth_headers, since, state="CONTABILIZADA",configuration=default_config):
+    """
+    Recovers all boletas since a given date
+    Arguments:
+    - auth_headers Authorization headers dictionary
+    - since a date in ISO format without TZ, i.e. 2020-02-30T00:00:00
+    - state one of INGRESADA, SIN_BOLETA, CONTABILIZADA,
+    - configuration dictionary
+    Returns:
+        JSON response
+    Raises:
+        BoletaElectronicaException
+    """
+    config_ventas_url = configuration["config_ventas_url"]
+    try:
+        result = requests.get(
+            "{}/ventas/?fecha-desde={}&estado={}".format(config_ventas_url,since,state),
+            headers=auth_headers
+        )
+        error_response = result
+        result.raise_for_status()
+    except requests.exceptions.HTTPError as e:
+        raise_boleta_error(error_response, e)
+    return result.json()
+
 # VIEWS
 def recover_boleta(request, configuration=default_config):
     """

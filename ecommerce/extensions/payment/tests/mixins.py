@@ -1080,6 +1080,30 @@ class BoletaMixin:
             }
         )
 
+    def add_boleta_get_boletas(self, since, status="CONTABILIZADA", total=10, order_number="UA-100001"):
+        responses.add(
+            method=responses.GET,
+            url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/ventas/?fecha-desde={}&estado={}'.format(
+                since, status),
+            json=[{
+                "boleta": {
+                    "fechaEmision": "2020-03-01T00:00:00",
+                    "folio": "folio"
+                },
+                "id": "id",
+                "recaudaciones": [{"monto": int(total), "id": order_number}]
+                }]
+
+        )
+
+    def add_boleta_get_boletas_custom(self, since, json_response=[], status="CONTABILIZADA"):
+        responses.add(
+            method=responses.GET,
+            url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/ventas/?fecha-desde={}&estado={}'.format(
+                since, status),
+            json=json_response
+        )
+
     def add_boleta_auth_refused(self):
         responses.add(
             method=responses.POST,
@@ -1098,6 +1122,15 @@ class BoletaMixin:
     def add_boleta_details_404(self, boleta_id="id"):
         responses.add(
             method=responses.GET,
-            url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/ventas/{}'.format(boleta_id),
+            url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/ventas/{}'.format(
+                boleta_id),
             status=404
+        )
+
+    def add_boleta_get_boletas_500(self, since, status="CONTABILIZADA"):
+        responses.add(
+            method=responses.GET,
+            url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/ventas/?fecha-desde={}&estado={}'.format(
+                since, status),
+            status=500   
         )
