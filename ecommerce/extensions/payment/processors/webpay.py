@@ -57,6 +57,7 @@ class Webpay(BasePaymentProcessor):
         Construct a new instance of the Webpay processor.
         """
         super(Webpay, self).__init__(site)
+        self.VALID_CHARS = string.digits+'Kk'
 
     def validateRUT(self, rut):
         """
@@ -105,7 +106,7 @@ class Webpay(BasePaymentProcessor):
         id_number = request.data.get("id_number")
         if id_type == "0":
             # Clean and add dash
-            id_number = [c for c in id_number if c in string.digits]
+            id_number = [c for c in id_number if c in self.VALID_CHARS]
             id_number.insert(-1,"-")
             id_number = "".join(id_number)
             valid_rut = self.validateRUT(id_number)
