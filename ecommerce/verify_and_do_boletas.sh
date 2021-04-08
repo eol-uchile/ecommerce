@@ -10,5 +10,5 @@ else
   echo "Expected date in format YYYY-MM-DDT00:00:00 as first argument" 1>&2;
   echo "Using default of 7 days ago...";
   sleep 3 
-  run $(date -d "7 day ago" +%Y-%m-%dT%H:%M:%S)
+  run $(date -d "7 day ago" +%Y-%m-%dT00:00:00)
 fi

@@ -180,8 +180,13 @@ class Command(BaseCommand):
 
     def find_missing_locals(self, order_boleta_pairs, since):
         """
+        By this point the only option is that we have more
+        boletas locally (because of the previous checks)
+
         Compare if remote and local counts match.
         Otherwise register errors and missing elements.
+
+        NOTE: some errors have arisen from timezone mistakes
         """
         def list_diff(l1,l2):
             second = set(l2)
@@ -190,7 +195,7 @@ class Command(BaseCommand):
         local = BoletaElectronica.objects.filter(
             emission_date__gte=since)
         local_count = local.count()
-        if len(order_boleta_pairs) != local_count:
+        if len(order_boleta_pairs) < local_count:
             logger.error(
                 "Boleta count is inconsistent. Local {} - Remote {}".format(local_count, len(order_boleta_pairs)))
             remote_boleta_ids = [b[1] for b in order_boleta_pairs] # Tuples
