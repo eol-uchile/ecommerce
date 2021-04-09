@@ -1063,7 +1063,7 @@ class BoletaMixin:
             method=responses.POST,
             url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/authorization-token',
             json={"access_token": "test", "codigoSII": "codigo sucursal",
-                  "repCodigo": "codigo reparticion"}
+                  "repCodigo": "codigo reparticion", "expires_in": 299}
         )
 
     def add_boleta_creation(self, boleta_id="id"):

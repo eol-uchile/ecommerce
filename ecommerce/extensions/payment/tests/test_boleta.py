@@ -47,8 +47,12 @@ class BoletaTests(BoletaMixin, TestCase):
     @responses.activate
     def test_authenticate_success(self):
         self.add_boleta_auth()
-        self.assertEqual({"access_token": "test", "codigoSII": "codigo sucursal", "repCodigo": "codigo reparticion"},
-                         authenticate_boleta_electronica(basket=self.basket))
+        self.assertEqual({
+            "access_token": "test",
+            "codigoSII": "codigo sucursal",
+            "repCodigo": "codigo reparticion",
+            "expires_in": 299},
+            authenticate_boleta_electronica(basket=self.basket))
         self.assertEqual(0, self.count_boleta_errors())
 
     @responses.activate

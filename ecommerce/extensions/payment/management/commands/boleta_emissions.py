@@ -3,6 +3,7 @@ import requests
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 from django.core.mail import send_mail
+from django.core.cache import cache
 from oscar.core.loading import get_model
 from oscar.apps.partner import strategy
 
@@ -15,6 +16,17 @@ logger = logging.getLogger(__name__)
 class Command(BaseCommand):
     help = """Create boletas from unused user billing info."""
     requires_migrations_checks = True
+
+    def get_auth_from_cache(self, basket):
+        """
+        Save authentication credentials on cache for half it's lifetime
+        """
+        auth = cache.get("boleta_emissions_auth_cache", None)
+        if auth == None or auth["expires_in"] < 20:
+            auth = authenticate_boleta_electronica(basket=basket)
+            cache.set("boleta_emissions_auth_cache", auth, auth["expires_in"]//2)
+        return auth
+
 
     def add_arguments(self, parser):
         parser.add_argument("--dry-run", help="Run without applying changes", action='store_true')
@@ -61,7 +73,7 @@ class Command(BaseCommand):
                 basket.strategy = strategy.Default()
 
                 if not dry_run:
-                    auth = authenticate_boleta_electronica(basket=basket)
+                    auth = self.get_auth_from_cache(basket)
                     boleta_id = make_boleta_electronica(basket, order, auth)
                     
                 completed = completed + 1
