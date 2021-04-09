@@ -3,9 +3,11 @@ import requests
 
 from collections import namedtuple
 from django.test import override_settings
+from django.urls import reverse
 from ecommerce.extensions.payment.boleta import authenticate_boleta_electronica, \
     BoletaElectronicaException, BoletaSinFoliosException, make_paragraphs_200, \
-    make_boleta_electronica, get_boleta_details, recover_boleta, raise_boleta_error, get_boletas
+    make_boleta_electronica, get_boleta_details, recover_boleta, raise_boleta_error, \
+    get_boletas, recover_boleta
 from ecommerce.extensions.payment.models import UserBillingInfo, BoletaElectronica, BoletaErrorMessage
 
 from ecommerce.tests.testcases import TestCase
@@ -14,7 +16,7 @@ from ecommerce.extensions.payment.tests.mixins import BoletaMixin
 
 
 class BoletaTests(BoletaMixin, TestCase):
-    
+
     def count_boleta_errors(self):
         return BoletaErrorMessage.objects.all().count()
 
@@ -199,3 +201,93 @@ class BoletaTests(BoletaMixin, TestCase):
             self.assertRaises(BoletaElectronicaException, get_boletas, {
                 "Authorization": "Bearer " + auth["access_token"]
             }, "2020-03-01T00:00:00")
+
+
+class BoletaViewsTests(BoletaMixin, TestCase):
+    def create_boleta(self):
+        boleta = BoletaElectronica(basket=self.basket, voucher_id="id", receipt_url='{}/ventas/{}/boletas/pdf'.format(
+            self.BOLETA_SETTINGS["config_ventas_url"], "id"))
+        boleta.save()
+        return boleta
+
+    def setUp(self):
+        with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
+            super(BoletaViewsTests, self).setUp() # Setup TestCases configurations
+        self.user = self.create_user()
+        self.create_access_token(self.user)
+        self.basket = create_basket(owner=self.user, price="10.0")
+        self.order = create_order(basket=self.basket)
+    
+    def test_recover_boleta_not_configured(self):
+        with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS_DISABLED):
+            response = self.client.get(reverse("recover_boleta"))
+            self.assertTemplateUsed(response, "404.html")
+
+    def test_recover_boleta_no_login(self):
+        with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
+            response = self.client.get(reverse("recover_boleta"))
+            self.assertTemplateUsed(response, "edx/checkout/boleta_error.html")
+            self.assertContains(response, "¡Debe estar autenticado en el sistema!.")
+
+    def test_recover_boleta_no_order_number(self):
+        with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
+            self.client.login(username=self.user.username, password=self.password)
+            response = self.client.get(reverse("recover_boleta"))
+            self.assertTemplateUsed(response, "edx/checkout/boleta_error.html")
+            self.assertContains(response, "¡Debe proveer un número de orden!.")
+    
+    def test_recover_boleta_doesnt_exists(self):
+        with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
+            self.client.login(username=self.user.username, password=self.password)
+            response = self.client.get(reverse("recover_boleta"),{"order_number": self.order.number})
+            self.assertTemplateUsed(response, "edx/checkout/boleta_error.html")
+            self.assertContains(response, "La boleta solicitada no existe.")
+    
+    @responses.activate
+    def test_recover_boleta_owner(self):
+        with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
+            boleta = self.create_boleta()
+            self.add_boleta_auth()
+            self.add_boleta_get_file(boleta.voucher_id)
+            self.client.login(username=self.user.username, password=self.password)
+            response = self.client.get(reverse("recover_boleta"),{"order_number": self.order.number})
+            self.assertContains(response, "I'm a PDF file")
+    
+    @responses.activate
+    def test_recover_boleta_owner_404(self):
+        with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
+            boleta = self.create_boleta()
+            self.add_boleta_auth()
+            self.add_boleta_get_file_404(boleta.voucher_id)
+            self.client.login(username=self.user.username, password=self.password)
+            response = self.client.get(reverse("recover_boleta"),{"order_number": self.order.number})
+            self.assertTemplateUsed(response, "edx/checkout/boleta_error.html")
+            self.assertContains(response, "Hubo un error al recuperar su boleta electrónica.")
+
+    @responses.activate
+    def test_recover_boleta_not_owner(self):
+        with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
+            boleta = self.create_boleta()
+            # Change user ownership
+            self.basket.owner = self.create_user()
+            self.basket.save()
+            self.client.login(username=self.user.username, password=self.password)
+            response = self.client.get(reverse("recover_boleta"),{"order_number": self.order.number})
+            self.assertTemplateUsed(response, "edx/checkout/boleta_error.html")
+            self.assertContains(response, "El usuario no es dueño de la orden solicitada.")
+    
+    @responses.activate
+    def test_recover_boleta_not_owner_but_admin(self):
+        with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
+            boleta = self.create_boleta()
+            # Change user ownership
+            self.basket.owner = self.create_user()
+            self.basket.save()
+            self.add_boleta_auth()
+            self.add_boleta_get_file(boleta.voucher_id)
+            # Add privilege
+            self.user.is_superuser = True
+            self.user.save()
+            self.client.login(username=self.user.username, password=self.password)
+            response = self.client.get(reverse("recover_boleta"),{"order_number": self.order.number})
+            self.assertContains(response, "I'm a PDF file")

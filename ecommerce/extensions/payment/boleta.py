@@ -8,7 +8,7 @@ import requests
 import waffle
 from django.conf import settings
 from django.core.cache import cache
-from django.http import FileResponse, HttpResponse
+from django.http import FileResponse, HttpResponse, Http404
 from django.shortcuts import render
 from oscar.core.loading import get_model
 
@@ -384,6 +384,9 @@ def recover_boleta(request, configuration=default_config):
 
     CACHE the Boleta PDF response
     """
+
+    if not hasattr(settings, 'BOLETA_CONFIG') or settings.BOLETA_CONFIG.get('enabled',False) == False:
+        raise Http404("Boletas desactivadas para ecommerce")
     # Error context
     context = {
         "order_number": "",
@@ -408,9 +411,8 @@ def recover_boleta(request, configuration=default_config):
     context["order_number"] = order_number
 
     try:
-        order = Order.objects.get(number=order_number)
-        boleta = BoletaElectronica.objects.get(basket=order.basket)
-        if boleta.basket.owner.id != user_id:
+        boleta = BoletaElectronica.objects.get(basket__order__number=order_number)
+        if (not request.user.is_superuser) and (boleta.basket.owner.id != user_id):
             logger.error("User does not own the Basket provided to recover_boleta")
             context['msg'] = 'El usuario no es dueño de la orden solicitada.'
             return render(request, "edx/checkout/boleta_error.html",context)
@@ -431,20 +433,11 @@ def recover_boleta(request, configuration=default_config):
         pdfName = 'boleta-{}.pdf'.format(boleta.voucher_id)
 
         return FileResponse(buffer, as_attachment=True, filename=pdfName)
-    except Order.DoesNotExist:
-        logger.error("Order does not exists, number: "+str(order_number))
-        context['msg'] = 'La orden solicitada no existe.'
-        return render(request, "edx/checkout/boleta_error.html",context)
     except BoletaElectronica.DoesNotExist:
         logger.error("Boleta Electronica does not exists, number: "+str(order_number))
         context['msg'] = 'La boleta solicitada no existe.'
         return render(request, "edx/checkout/boleta_error.html",context)
-    except BoletaElectronicaException as e:
-        logger.error("Error while getting Boleta Electronica PDF, "+e, exc_info=True)
-        return render(request, "edx/checkout/boleta_error.html",context)
-    except requests.exceptions.ConnectionError as e:
-        logger.error("Error while getting Boleta Electronica PDF, "+e, exc_info=True)
-        return render(request, "edx/checkout/boleta_error.html",context)
+    # also BoletaElectronicaException and requests.exceptions.ConnectionError
     except Exception as e:
-        logger.error("Error while getting Boleta Electronica PDF, "+e, exc_info=True)
+        logger.error("Error while getting Boleta Electronica PDF {}".format(e), exc_info=True)
         return render(request, "edx/checkout/boleta_error.html",context)

@@ -1023,6 +1023,10 @@ class BoletaMixin:
         "config_ventas_url": "https://ventas-test.uchile.cl/ventas-api-front/api/v1",
     }
 
+    BOLETA_SETTINGS_DISABLED = {
+        "enabled": False
+    }
+
     BILLING_INFO_FORM = {
         "billing_district": "district",
         "billing_city": "city",
@@ -1135,4 +1139,25 @@ class BoletaMixin:
             url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/ventas/?fecha-desde={}&estado={}'.format(
                 since, status),
             status=500   
+        )
+
+    def add_boleta_get_file(self, id):
+        responses.add(
+            method=responses.GET,
+            url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/ventas/{}/boletas/pdf'.format(id),
+            body="I'm a PDF file"
+        )
+
+    def add_boleta_get_file_404(self, id):
+        responses.add(
+            method=responses.GET,
+            url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/ventas/{}/boletas/pdf'.format(id),
+            status=404
+        )
+
+    def add_boleta_get_file_500(self, id):
+        responses.add(
+            method=responses.GET,
+            url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/ventas/{}/boletas/pdf'.format(id),
+            status=500
         )
