@@ -66,8 +66,8 @@ class TestBoletaEmissionsCommand(BoletaMixin, TestCase):
     def test_complete_boleta(self):
         with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
             self.create_incomplete_boleta()
-            self.add_boleta_auth()
-            self.add_boleta_details(self.basket.total_incl_tax)
+            self.mock_boleta_auth()
+            self.mock_boleta_details(self.basket.total_incl_tax)
 
             self.call_command_action()
             boleta = BoletaElectronica.objects.first()
@@ -79,8 +79,8 @@ class TestBoletaEmissionsCommand(BoletaMixin, TestCase):
     def test_complete_boleta_list(self):
         with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
             self.create_incomplete_boleta()
-            self.add_boleta_auth()
-            self.add_boleta_details(self.basket.total_incl_tax)
+            self.mock_boleta_auth()
+            self.mock_boleta_details(self.basket.total_incl_tax)
 
             self.call_command_action("-l", "{}".format("id"))
             boleta = BoletaElectronica.objects.first()
@@ -92,8 +92,8 @@ class TestBoletaEmissionsCommand(BoletaMixin, TestCase):
     def test_skip_complete_boleta(self):
         with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
             self.create_complete_boleta()
-            self.add_boleta_auth()
-            self.add_boleta_details(self.basket.total_incl_tax)
+            self.mock_boleta_auth()
+            self.mock_boleta_details(self.basket.total_incl_tax)
 
             self.call_command_action()
             boleta = BoletaElectronica.objects.first()
@@ -105,8 +105,8 @@ class TestBoletaEmissionsCommand(BoletaMixin, TestCase):
     def test_skip_complete_boleta_list(self):
         with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
             self.create_complete_boleta()
-            self.add_boleta_auth()
-            self.add_boleta_details(self.basket.total_incl_tax)
+            self.mock_boleta_auth()
+            self.mock_boleta_details(self.basket.total_incl_tax)
 
             self.call_command_action("-l", "{}".format("id"))
             boleta = BoletaElectronica.objects.first()

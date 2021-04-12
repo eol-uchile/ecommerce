@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 
-tox -e py38-django22-tests ecommerce/extensions/payment/tests/processors/test_webpay.py \
+tox -e py38-django22-tests \
+ ecommerce/extensions/payment/tests/processors/test_webpay.py \
+ ecommerce/extensions/payment/tests/views/test_webpay.py \
  ecommerce/extensions/payment/tests/test_boleta.py \
  ecommerce/extensions/payment/management/tests/test_boleta_emissions.py \
  ecommerce/extensions/payment/management/tests/test_fulfill_order.py \

@@ -1,6 +1,6 @@
 import responses
 import requests
-from unittest.mock import patch 
+from unittest.mock import patch
 
 from django.test import override_settings
 from oscar.apps.payment.exceptions import GatewayError, TransactionDeclined
@@ -9,71 +9,24 @@ from ecommerce.extensions.test.factories import create_order
 from ecommerce.extensions.payment.exceptions import PartialAuthorizationError
 from ecommerce.extensions.payment.processors.webpay import Webpay, WebpayTransactionDeclined, WebpayRefundRequired
 from ecommerce.extensions.payment.tests.processors.mixins import PaymentProcessorTestCaseMixin
-from ecommerce.extensions.payment.tests.mixins import BoletaMixin
+from ecommerce.extensions.payment.tests.mixins import BoletaMixin, TransbankMixin
 from ecommerce.extensions.payment.models import UserBillingInfo, BoletaErrorMessage
 from ecommerce.extensions.payment.boleta import BoletaElectronicaException
 
-class WebpayTests(BoletaMixin, PaymentProcessorTestCaseMixin, TestCase):
+
+class WebpayTests(TransbankMixin, BoletaMixin, PaymentProcessorTestCaseMixin, TestCase):
     """Tests for the webpay payment processor."""
 
     processor_class = Webpay
     processor_name = "webpay"
 
-
-    billing_info_form = {
-        "billing_district": "district",
-        "billing_city": "city",
-        "billing_address": "address",
-        "billing_country": "CL",
-        "id_number": "1-9",
-        "id_option": "0",
-        "id_other": "",
-        "first_name": "first_name last_name",
-        "last_name_1": "last_name_1",
-        "last_name_2": "",
-    }
-
-    def get_transaction_details_helper(self, status='INITIALIZED'):
-        """Helper function"""
-
-        return {'accounting_date': '1223',
-            'amount': float(self.basket.total_incl_tax),
-            'authorization_code': '1213',
-            'buy_order': self.basket.order_number,
-            'card_detail': {'card_number': '6623'},
-            'installments_number': 0,
-            'payment_type_code': 'VN',
-            'response_code': 0,
-            'session_id': 'EOL-100049',
-            'status': status,
-            'transaction_date': '2020-12-23T17:50:37.179Z',
-            'vci': 'TSY'}
-
-    def make_billing_info_helper(self,id_type,country_code):
-        billing_info = UserBillingInfo(
-            billing_district="district",
-            billing_city="city",
-            billing_address="address",
-            billing_country_iso2=country_code,
-            id_number="1-9",
-            id_option=id_type,
-            id_other="",
-            first_name="name name",
-            last_name_1="last name",
-            basket=self.basket
-        )
-        billing_info.save()
-
     @responses.activate
     def test_get_transaction_parameters(self):
-        responses.add(
-            method=responses.POST,
-            url='http://transbank:5000/process-webpay',
-            json={"token": "test-token", "url": "http://webpay.cl"}
-        )
+
+        self.mock_transbank_initial_token_response()
 
         # Append data instead of creating new request
-        self.request.data = self.billing_info_form
+        self.request.data = self.BILLING_INFO_FORM
 
         response = self.processor.get_transaction_parameters(
             self.basket, request=self.request)
@@ -86,73 +39,57 @@ class WebpayTests(BoletaMixin, PaymentProcessorTestCaseMixin, TestCase):
         self.assertEqual(expected, response)
         # Check that billing info was saved
         self.assertIsNotNone(UserBillingInfo.objects.get(basket=self.basket))
-        self.assertEqual(UserBillingInfo.RUT,UserBillingInfo.objects.get(basket=self.basket).id_option)
+        self.assertEqual(UserBillingInfo.RUT, UserBillingInfo.objects.get(
+            basket=self.basket).id_option)
 
     @responses.activate
     def test_get_transaction_parameters_fail_rut(self):
-        responses.add(
-            method=responses.POST,
-            url='http://transbank:5000/process-webpay',
-            json={"token": "test-token", "url": "http://webpay.cl"}
-        )
+        self.mock_transbank_initial_token_response()
 
         # Append data instead of creating new request
-        self.request.data = self.billing_info_form.copy()
+        self.request.data = self.BILLING_INFO_FORM.copy()
         self.request.data["id_number"] = "13"
 
-        self.assertRaises(Exception,self.processor.get_transaction_parameters,
-            self.basket, self.request)
-
+        self.assertRaises(Exception, self.processor.get_transaction_parameters,
+                          self.basket, self.request)
 
     @responses.activate
     @patch("django.core.mail.send_mail")
     def test_get_transaction_parameters_webpay_down(self, mock_send_mail):
         mock_send_mail.return_value = True
-        responses.add(
-            method=responses.POST,
-            url='http://transbank:5000/process-webpay',
-            status=403
-        )
-        self.request.data = self.billing_info_form
+        self.mock_transbank_initial_token_response_error(403)
+        self.request.data = self.BILLING_INFO_FORM
 
         with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
             self.assertRaises(GatewayError, self.processor.get_transaction_parameters,
-                self.basket, self.request)
+                              self.basket, self.request)
 
     @responses.activate
     @patch("django.core.mail.send_mail")
     def test_get_transaction_parameters_faulty_response(self, mock_send_mail):
         mock_send_mail.return_value = True
         # We test both cases
-        responses.add(
-            method=responses.POST,
-            url='http://transbank:5000/process-webpay',
-            json={"token": None, "url": "http://webpay.cl"}
-        )
+        self.mock_transbank_initial_token_response(
+            {"token": None, "url": "http://webpay.cl"})
 
-        self.request.data = self.billing_info_form
+        self.request.data = self.BILLING_INFO_FORM
 
         self.assertRaises(TransactionDeclined, self.processor.get_transaction_parameters,
-            self.basket, self.request)
+                          self.basket, self.request)
 
-        responses.add(
-            method=responses.POST,
-            url='http://transbank:5000/process-webpay',
-            json={"token": '', "url": "http://webpay.cl"}
-        )
+        self.mock_transbank_initial_token_response(
+            {"token": '', "url": "http://webpay.cl"})
         self.assertRaises(TransactionDeclined, self.processor.get_transaction_parameters,
-            self.basket, self.request)
-    
+                          self.basket, self.request)
+
     @responses.activate
     def test_handle_processor_response(self):
 
-        responses.add(
-            method=responses.POST,
-            url='http://transbank:5000/get-transaction',
-            json=self.get_transaction_details_helper(status='AUTHORIZED')
-        )
+        self.mock_transbank_response('AUTHORIZED', float(
+            self.basket.total_incl_tax), self.basket.order_number, 0)
 
-        transaction_details = self.get_transaction_details_helper()
+        transaction_details = self.get_transaction_details_helper('INITIALIZED', float(
+            self.basket.total_incl_tax), self.basket.order_number, 0)
         transaction_details['token'] = "test"
 
         handled_response = self.processor.handle_processor_response(
@@ -161,11 +98,11 @@ class WebpayTests(BoletaMixin, PaymentProcessorTestCaseMixin, TestCase):
                          transaction_details["amount"])
         self.assertEqual(handled_response.transaction_id,
                          transaction_details["buy_order"])
-    
+
     def test_handle_processor_response_mismatch_error(self):
 
-        transaction_details = self.get_transaction_details_helper()
-        transaction_details["amount"] = -100
+        transaction_details = self.get_transaction_details_helper(
+            'INITIALIZED', -100, self.basket.order_number, 0)
         transaction_details['token'] = "test"
 
         self.assertRaises(PartialAuthorizationError, self.processor.handle_processor_response,
@@ -173,8 +110,8 @@ class WebpayTests(BoletaMixin, PaymentProcessorTestCaseMixin, TestCase):
 
     def test_handle_processor_response_webpay_error(self):
 
-        transaction_details = self.get_transaction_details_helper()
-        transaction_details["status"] = None
+        transaction_details = self.get_transaction_details_helper('INITIALIZED', float(
+            self.basket.total_incl_tax), self.basket.order_number, None)
         transaction_details['token'] = "test"
 
         self.assertRaises(WebpayTransactionDeclined, self.processor.handle_processor_response,
@@ -183,16 +120,12 @@ class WebpayTests(BoletaMixin, PaymentProcessorTestCaseMixin, TestCase):
     @responses.activate
     def test_handle_processor_response_webpay_refund_required(self):
 
-        commited_response = self.get_transaction_details_helper(status='AUTHORIZED')
-        commited_response['amount'] = 1
-
-        responses.add(
-            method=responses.POST,
-            url='http://transbank:5000/get-transaction',
-            json=commited_response
-        )
-        transaction_details = self.get_transaction_details_helper()
+        transaction_details = self.get_transaction_details_helper(
+            'INITIALIZED', float(self.basket.total_incl_tax), self.basket.order_number, 0)
         transaction_details['token'] = "test"
+
+        self.mock_transbank_response(
+            'AUTHORIZED', 1, self.basket.order_number, 0)
 
         self.assertRaises(WebpayRefundRequired, self.processor.handle_processor_response,
                           transaction_details, self.basket)
@@ -202,13 +135,11 @@ class WebpayTests(BoletaMixin, PaymentProcessorTestCaseMixin, TestCase):
     def test_get_transaction_data(self, mock_send_mail):
         mock_send_mail.return_value = True
 
-        transaction_details = self.get_transaction_details_helper()
+        self.mock_transbank_status_response('INITIALIZED', float(
+            self.basket.total_incl_tax), self.basket.order_number, 0)
+        transaction_details = self.get_transaction_details_helper(
+            'INITIALIZED', float(self.basket.total_incl_tax), self.basket.order_number, 0)
 
-        responses.add(
-            method=responses.POST,
-            url='http://transbank:5000/transaction-status',
-            json=transaction_details
-        )
         response = self.processor.get_transaction_data("token")
         self.assertEqual(transaction_details, response)
 
@@ -217,11 +148,7 @@ class WebpayTests(BoletaMixin, PaymentProcessorTestCaseMixin, TestCase):
     def test_get_transaction_data_webpay_down(self, mock_send_mail):
         mock_send_mail.return_value = True
         with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
-            responses.add(  
-                method=responses.POST,
-                url='http://transbank:5000/transaction-status',
-                status=500
-            )
+            self.mock_transbank_status_response_error()
             self.assertRaises(
                 GatewayError, self.processor.get_transaction_data, "token")
 
@@ -230,13 +157,11 @@ class WebpayTests(BoletaMixin, PaymentProcessorTestCaseMixin, TestCase):
     def test_commit_transaction(self, mock_send_mail):
         mock_send_mail.return_value = True
 
-        transaction_details = self.get_transaction_details_helper()
+        transaction_details = self.get_transaction_details_helper(
+            'AUTHORIZED', float(self.basket.total_incl_tax), self.basket.order_number, 0)
 
-        responses.add(
-            method=responses.POST,
-            url='http://transbank:5000/get-transaction',
-            json=transaction_details
-        )
+        self.mock_transbank_response(
+            'AUTHORIZED', float(self.basket.total_incl_tax), self.basket.order_number, 0)
         response = self.processor.commit_transaction("token")
         self.assertEqual(transaction_details, response)
 
@@ -245,17 +170,14 @@ class WebpayTests(BoletaMixin, PaymentProcessorTestCaseMixin, TestCase):
     def test_commit_transaction_webpay_down(self, mock_send_mail):
         mock_send_mail.return_value = True
         with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
-            responses.add(  
-                method=responses.POST,
-                url='http://transbank:5000/get-transaction',
-                status=500
-            )
+            self.mock_transbank_response_error()
             self.assertRaises(
                 GatewayError, self.processor.commit_transaction, "token")
 
-    def test_boleta_emission_disabled(self):    
-        self.processor.boleta_emission(self.basket, create_order(basket=self.basket))
-
+    def test_boleta_emission_disabled(self):
+        with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS_DISABLED):
+            self.processor.boleta_emission(
+                self.basket, create_order(basket=self.basket))
 
     @patch("django.core.mail.send_mail")
     @patch("ecommerce.extensions.payment.boleta.authenticate_boleta_electronica")
@@ -266,11 +188,11 @@ class WebpayTests(BoletaMixin, PaymentProcessorTestCaseMixin, TestCase):
 
             # Create order and make boleta
             order = create_order(basket=self.basket)
-            
+
             mock_auth.side_effect = requests.exceptions.ConnectTimeout
 
-            self.assertRaises(WebpayTransactionDeclined, self.processor.boleta_emission, self.basket, order)
-
+            self.assertRaises(WebpayTransactionDeclined,
+                              self.processor.boleta_emission, self.basket, order)
 
     @patch("django.core.mail.send_mail")
     @patch("ecommerce.extensions.payment.boleta.authenticate_boleta_electronica")
@@ -282,11 +204,12 @@ class WebpayTests(BoletaMixin, PaymentProcessorTestCaseMixin, TestCase):
 
             # Create order and make boleta
             order = create_order(basket=self.basket)
-            
+
             mock_auth.return_value = True
             mock_boleta.side_effect = requests.exceptions.ConnectTimeout
 
-            self.assertRaises(WebpayTransactionDeclined, self.processor.boleta_emission, self.basket, order)
+            self.assertRaises(WebpayTransactionDeclined,
+                              self.processor.boleta_emission, self.basket, order)
 
     @patch("django.core.mail.send_mail")
     @patch("ecommerce.extensions.payment.boleta.authenticate_boleta_electronica")
@@ -298,14 +221,16 @@ class WebpayTests(BoletaMixin, PaymentProcessorTestCaseMixin, TestCase):
 
             # Create order and make boleta
             order = create_order(basket=self.basket)
-            
+
             mock_auth.return_value = True
             mock_boleta.side_effect = BoletaElectronicaException
 
             # Error creates error description message
-            error = BoletaErrorMessage(content="Error test", order_number=order.number, error_at="boleta")
+            error = BoletaErrorMessage(
+                content="Error test", order_number=order.number, error_at="boleta")
 
-            self.assertRaises(WebpayTransactionDeclined, self.processor.boleta_emission, self.basket, order)
+            self.assertRaises(WebpayTransactionDeclined,
+                              self.processor.boleta_emission, self.basket, order)
 
     @patch("django.core.mail.send_mail")
     @patch("ecommerce.extensions.payment.boleta.authenticate_boleta_electronica")
@@ -317,11 +242,12 @@ class WebpayTests(BoletaMixin, PaymentProcessorTestCaseMixin, TestCase):
 
             # Create order and make boleta
             order = create_order(basket=self.basket)
-            
+
             mock_auth.return_value = True
             mock_boleta.side_effect = Exception
 
-            self.assertRaises(WebpayTransactionDeclined, self.processor.boleta_emission, self.basket, order)
+            self.assertRaises(WebpayTransactionDeclined,
+                              self.processor.boleta_emission, self.basket, order)
 
     def test_issue_credit(self):
         self.assertRaises(

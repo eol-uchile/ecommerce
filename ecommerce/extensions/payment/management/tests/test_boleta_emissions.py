@@ -59,9 +59,9 @@ class TestBoletaEmissionsCommand(BoletaMixin, TestCase):
         self.order.status = ORDER.COMPLETE
         self.order.save()
 
-        self.add_boleta_auth()
-        self.add_boleta_creation()
-        self.add_boleta_details(self.order.total_incl_tax)
+        self.mock_boleta_auth()
+        self.mock_boleta_creation()
+        self.mock_boleta_details(self.order.total_incl_tax)
 
         with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
             self.call_command_action()
@@ -76,8 +76,8 @@ class TestBoletaEmissionsCommand(BoletaMixin, TestCase):
         self.order.status = ORDER.COMPLETE
         self.order.save()
 
-        self.add_boleta_auth()
-        self.add_boleta_creation()
+        self.mock_boleta_auth()
+        self.mock_boleta_creation()
 
         with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
             self.call_command_action()
@@ -134,7 +134,7 @@ class TestBoletaEmissionsCommand(BoletaMixin, TestCase):
         self.order.status = ORDER.COMPLETE
         self.order.save()
 
-        self.add_boleta_auth_refused()
+        self.mock_boleta_auth_refused()
 
         with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
             self.call_command_action()
@@ -146,8 +146,8 @@ class TestBoletaEmissionsCommand(BoletaMixin, TestCase):
         self.order.status = ORDER.COMPLETE
         self.order.save()
 
-        self.add_boleta_auth()
-        self.add_boleta_creation_500()
+        self.mock_boleta_auth()
+        self.mock_boleta_creation_500()
 
         with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
             self.call_command_action()
@@ -162,7 +162,7 @@ class TestBoletaEmissionsCommand(BoletaMixin, TestCase):
         self.order.status = ORDER.COMPLETE
         self.order.save()
 
-        self.add_boleta_auth()
+        self.mock_boleta_auth()
         responses.add(
             method=responses.POST,
             url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/ventas',
@@ -187,9 +187,9 @@ class TestBoletaEmissionsCommand(BoletaMixin, TestCase):
         self.order.status = ORDER.COMPLETE
         self.order.save()
 
-        self.add_boleta_auth()
-        self.add_boleta_creation()
-        self.add_boleta_details(self.order.total_incl_tax)
+        self.mock_boleta_auth()
+        self.mock_boleta_creation()
+        self.mock_boleta_details(self.order.total_incl_tax)
 
         with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
             # Fulfill
@@ -213,9 +213,9 @@ class TestBoletaEmissionsCommand(BoletaMixin, TestCase):
         self.order.status = ORDER.COMPLETE
         self.order.save()
 
-        self.add_boleta_auth()
-        self.add_boleta_creation()
-        self.add_boleta_details(self.order.total_incl_tax)
+        self.mock_boleta_auth()
+        self.mock_boleta_creation()
+        self.mock_boleta_details(self.order.total_incl_tax)
 
         with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
             self.call_command_action()
@@ -230,9 +230,9 @@ class TestBoletaEmissionsCommand(BoletaMixin, TestCase):
         self.order.status = ORDER.COMPLETE
         self.order.save()
 
-        self.add_boleta_auth()
-        self.add_boleta_creation()
-        self.add_boleta_details(self.order.total_incl_tax)
+        self.mock_boleta_auth()
+        self.mock_boleta_creation()
+        self.mock_boleta_details(self.order.total_incl_tax)
 
         with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
             self.call_command_action("--dry-run")
@@ -244,8 +244,8 @@ class TestBoletaEmissionsCommand(BoletaMixin, TestCase):
         self.order.status = ORDER.COMPLETE
         self.order.save()
 
-        self.add_boleta_auth()
-        self.add_boleta_creation()
+        self.mock_boleta_auth()
+        self.mock_boleta_creation()
 
         with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
             self.call_command_action("--dry-run")

@@ -1058,7 +1058,7 @@ class BoletaMixin:
         billing_info.save()
         return billing_info
 
-    def add_boleta_auth(self):
+    def mock_boleta_auth(self):
         responses.add(
             method=responses.POST,
             url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/authorization-token',
@@ -1066,14 +1066,14 @@ class BoletaMixin:
                   "repCodigo": "codigo reparticion", "expires_in": 299}
         )
 
-    def add_boleta_creation(self, boleta_id="id"):
+    def mock_boleta_creation(self, boleta_id="id"):
         responses.add(
             method=responses.POST,
             url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/ventas',
             json={"id": boleta_id}
         )
 
-    def add_boleta_details(self, total):
+    def mock_boleta_details(self, total):
         responses.add(
             method=responses.GET,
             url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/ventas/id',
@@ -1086,7 +1086,7 @@ class BoletaMixin:
             }
         )
 
-    def add_boleta_get_boletas(self, since, status="CONTABILIZADA", total=10, order_number="UA-100001"):
+    def mock_boleta_get_boletas(self, since, status="CONTABILIZADA", total=10, order_number="UA-100001"):
         responses.add(
             method=responses.GET,
             url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/ventas/?fecha-desde={}&estado={}'.format(
@@ -1102,7 +1102,7 @@ class BoletaMixin:
 
         )
 
-    def add_boleta_get_boletas_custom(self, since, json_response=[], status="CONTABILIZADA"):
+    def mock_boleta_get_boletas_custom(self, since, json_response=[], status="CONTABILIZADA"):
         responses.add(
             method=responses.GET,
             url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/ventas/?fecha-desde={}&estado={}'.format(
@@ -1110,7 +1110,7 @@ class BoletaMixin:
             json=json_response
         )
 
-    def add_boleta_auth_refused(self):
+    def mock_boleta_auth_refused(self):
         responses.add(
             method=responses.POST,
             url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/authorization-token',
@@ -1118,14 +1118,14 @@ class BoletaMixin:
             status=403
         )
 
-    def add_boleta_creation_500(self):
+    def mock_boleta_creation_500(self):
         responses.add(
             method=responses.POST,
             url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/ventas',
             status=500
         )
 
-    def add_boleta_details_404(self, boleta_id="id"):
+    def mock_boleta_details_404(self, boleta_id="id"):
         responses.add(
             method=responses.GET,
             url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/ventas/{}'.format(
@@ -1133,7 +1133,7 @@ class BoletaMixin:
             status=404
         )
 
-    def add_boleta_get_boletas_500(self, since, status="CONTABILIZADA"):
+    def mock_boleta_get_boletas_500(self, since, status="CONTABILIZADA"):
         responses.add(
             method=responses.GET,
             url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/ventas/?fecha-desde={}&estado={}'.format(
@@ -1141,23 +1141,93 @@ class BoletaMixin:
             status=500   
         )
 
-    def add_boleta_get_file(self, id):
+    def mock_boleta_get_file(self, id):
         responses.add(
             method=responses.GET,
             url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/ventas/{}/boletas/pdf'.format(id),
             body="I'm a PDF file"
         )
 
-    def add_boleta_get_file_404(self, id):
+    def mock_boleta_get_file_404(self, id):
         responses.add(
             method=responses.GET,
             url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/ventas/{}/boletas/pdf'.format(id),
             status=404
         )
 
-    def add_boleta_get_file_500(self, id):
+    def mock_boleta_get_file_500(self, id):
         responses.add(
             method=responses.GET,
             url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/ventas/{}/boletas/pdf'.format(id),
             status=500
+        )
+
+class TransbankMixin:
+    """
+    Transbank Mixin that provides
+    - a standard settings override.
+    - mock methods for the Transbank service with standard responses.
+
+    Each tests that mocks a response requires the @responses.activate decorator
+    """
+
+    def get_transaction_details_helper(self, status='INITIALIZED', amount=0, order="", response_code=0):
+        """Helper function"""
+
+        return {'accounting_date': '1223',
+            'amount': amount,#float(self.basket.total_incl_tax),
+            'authorization_code': '1213',
+            'buy_order': order,#self.basket.order_number,
+            'card_detail': {'card_number': '6623'},
+            'installments_number': 0,
+            'payment_type_code': 'VN',
+            'response_code': response_code,#0,
+            'session_id': 'EOL-100049',
+            'status': status,
+            'transaction_date': '2020-12-23T17:50:37.179Z',
+            'vci': 'TSY'}
+
+    def mock_transbank_initial_token_response(self, resp=None):
+        json_resp = {"token": "test-token", "url": "http://webpay.cl"}
+        if resp is not None:
+            json_resp = resp
+        responses.add(
+            method=responses.POST,
+            url='http://transbank:5000/process-webpay',
+            json=json_resp
+        )
+
+    def mock_transbank_initial_token_response_error(self, error=403):
+        responses.add(
+            method=responses.POST,
+            url='http://transbank:5000/process-webpay',
+            status=error
+        )
+
+    def mock_transbank_response(self, status='AUTHORIZED', amount=0, order="", response_code=0):
+        responses.add(
+            method=responses.POST,
+            url='http://transbank:5000/get-transaction',
+            json=self.get_transaction_details_helper(status, amount, order, response_code)
+        )
+
+    def mock_transbank_response_error(self, status=403):
+        responses.add(
+            method=responses.POST,
+            url='http://transbank:5000/get-transaction',
+            status=status
+        )
+
+    def mock_transbank_status_response(self, status='INITIALIZED', amount=0, order="", response_code=0):
+        responses.add(
+            method=responses.POST,
+            url='http://transbank:5000/transaction-status',
+            json=self.get_transaction_details_helper(status, amount, order, response_code)
+        )
+
+    def mock_transbank_status_response_error(self, status=403):
+        responses.add(
+            method=responses.POST,
+            url='http://transbank:5000/transaction-status',
+            status=status
         )

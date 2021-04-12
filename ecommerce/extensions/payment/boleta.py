@@ -12,12 +12,17 @@ from django.http import FileResponse, HttpResponse, Http404
 from django.shortcuts import render
 from oscar.core.loading import get_model
 
+from ecommerce.core.url_utils import (
+    get_lms_dashboard_url,
+    get_lms_explore_courses_url,
+)
+
 from ecommerce.extensions.checkout.utils import get_receipt_page_url
 from ecommerce.extensions.payment.models import BoletaElectronica, BoletaErrorMessage, UserBillingInfo
 from ecommerce.notifications.notifications import send_notification
 
 logger = logging.getLogger(__name__)
-Order = get_model('order','Order')
+Order = get_model('order', 'Order')
 default_config = {
     "enabled": False,
     "generate_on_payment": False,
@@ -35,6 +40,7 @@ default_config = {
 if hasattr(settings, 'BOLETA_CONFIG'):
     default_config = settings.BOLETA_CONFIG
 
+
 class BoletaElectronicaException(Exception):
     """Raised when the UChile API returns an error"""
 
@@ -44,10 +50,13 @@ class BoletaElectronicaException(Exception):
     def __str__(self):
         return "BOLETA API Error: {}".format(self.msg)
 
+
 class BoletaSinFoliosException(Exception):
     """Raised when the UChile API has no more tickets"""
+
     def __str__(self):
         return "BOLETA API Error: no hay mas folios"
+
 
 def make_paragraphs_200(line, order_number):
     """
@@ -65,7 +74,7 @@ def make_paragraphs_200(line, order_number):
         remainder = line[:796]
         iterate = len(remainder)//200
         newline = ""
-        for i in range(0,iterate):
+        for i in range(0, iterate):
             newline = newline + remainder[:199] + "^"
             remainder = remainder[199:]
         # final without ^
@@ -73,6 +82,7 @@ def make_paragraphs_200(line, order_number):
         return newline
     else:
         return line+append_order_number
+
 
 def authenticate_boleta_electronica(configuration=default_config, basket=None):
     """
@@ -106,7 +116,7 @@ def authenticate_boleta_electronica(configuration=default_config, basket=None):
     except requests.exceptions.HTTPError as e:
         error_text = error_response.text
         try:
-            error_text = json.dumps(error_response.json(),indent=1)
+            error_text = json.dumps(error_response.json(), indent=1)
         except Exception:
             pass
         order_number = "unset"
@@ -131,9 +141,9 @@ def send_boleta_email(basket):
 
         product = order.lines.first().product
         receipt_page_url = get_receipt_page_url(
-                    order_number=order.number,
-                    site_configuration=order.site.siteconfiguration
-                )
+            order_number=order.number,
+            site_configuration=order.site.siteconfiguration
+        )
         recipient = order.user.email
 
         send_notification(
@@ -159,7 +169,7 @@ def raise_boleta_error(response, e, create_error=False, order=None):
     """
     error_text = response.text
     try:
-        error_text = json.dumps(response.json(),indent=1)
+        error_text = json.dumps(response.json(), indent=1)
     except Exception:
         pass
     if create_error:
@@ -215,7 +225,8 @@ def make_boleta_electronica(basket, order, auth, configuration=default_config):
     itemName = "Certificado: curso de formación en extensión"
 
     # Limit lengths
-    itemDescription = make_paragraphs_200("Curso: {}".format(courseTitle), basket.order_number)
+    itemDescription = make_paragraphs_200(
+        "Curso: {}".format(courseTitle), basket.order_number)
 
     # DISCLAIMER:
     # Currently discounts can only be between 1-99% of price
@@ -227,10 +238,11 @@ def make_boleta_electronica(basket, order, auth, configuration=default_config):
 
     data = {
         "datosBoleta": {
-            "afecta": False, # No afecto a impuestos
+            "afecta": False,  # No afecto a impuestos
             "detalleProductosServicios": [{
                 "cantidadItem": product_lines[0].quantity,
-                "centroCosto": configuration["config_centro_costos"], # Uncommented
+                # Uncommented
+                "centroCosto": configuration["config_centro_costos"],
                 "cuentaContable": configuration["config_cuenta_contable"],
                 "descripcionAdicionalItem": itemDescription,
                 "identificadorProducto": course_product.id,
@@ -249,9 +261,10 @@ def make_boleta_electronica(basket, order, auth, configuration=default_config):
             },
             "referencia": [{  # Opcional para gestion interna
                 "codigoCaja": "eceol",
-                "codigoReferencia": basket.order_number, # Max length 18
+                "codigoReferencia": basket.order_number,  # Max length 18
                 "codigoVendedor": "INTERNET",
-                "razonReferencia": "Orden de compra: "+str(course_product.id), # Max length 90
+                # Max length 90
+                "razonReferencia": "Orden de compra: "+str(course_product.id),
             }, ],
             "saldoAnterior": 0,
         },
@@ -259,16 +272,18 @@ def make_boleta_electronica(basket, order, auth, configuration=default_config):
             "cuentaCorriente": True,  # Se requiere para anular la venta
             "identificadorPos": configuration["config_identificador_pos"],
             "sucursal": {  # Opcional
-                "codigo": configuration["config_sucursal"], #auth["codigoSII"], 
+                # auth["codigoSII"],
+                "codigo": configuration["config_sucursal"],
                 "comuna": "Santiago",
                 "direccion": "Diagonal Paraguay Nº 257",
-                "reparticion": configuration["config_reparticion"], #auth["repCodigo"],
+                # auth["repCodigo"],
+                "reparticion": configuration["config_reparticion"],
             },
         },
         "recaudaciones": [{
             "monto": order.total_incl_tax,
             "tipoPago": "Tarjeta de Crédito",  # Efectivo | Debito | Tarjeta de Crédito
-            "voucher": basket.order_number, # numero para gestion interna de transacciones
+            "voucher": basket.order_number,  # numero para gestion interna de transacciones
         }],
     }
 
@@ -288,7 +303,7 @@ def make_boleta_electronica(basket, order, auth, configuration=default_config):
         result.raise_for_status()
     except requests.exceptions.HTTPError as e:
         raise_boleta_error(error_response, e, True, basket.order_number)
-        
+
     voucher_id = result.json()['id']
     voucher_url = '{}/ventas/{}/boletas/pdf'.format(
         config_ventas_url, voucher_id)
@@ -303,24 +318,26 @@ def make_boleta_electronica(basket, order, auth, configuration=default_config):
     billing_info.boleta = boleta
     billing_info.save()
 
-    if settings.BOLETA_CONFIG.get("send_boleta_email",False):
+    if settings.BOLETA_CONFIG.get("send_boleta_email", False):
         send_boleta_email(basket=basket)
-    
+
     try:
         boleta_details = get_boleta_details(voucher_id, header)
     except BoletaElectronicaException:
         # Empty details; do not lock and retry later
-        logger.warning("Couldn't recover info for boleta {}".format(voucher_id))
+        logger.warning(
+            "Couldn't recover info for boleta {}".format(voucher_id))
         boleta_details = {"boleta": {}, "recaudaciones": [{}]}
 
-    if boleta_details["boleta"].get("fechaEmision",None) == None:
+    if boleta_details["boleta"].get("fechaEmision", None) == None:
         emission_date = None
     else:
-        emission_date = datetime.fromisoformat(boleta_details["boleta"]["fechaEmision"])
+        emission_date = datetime.fromisoformat(
+            boleta_details["boleta"]["fechaEmision"])
 
-    boleta.folio = boleta_details["boleta"].get("folio","")
+    boleta.folio = boleta_details["boleta"].get("folio", "")
     boleta.emission_date = emission_date
-    boleta.amount = int(boleta_details["recaudaciones"][0].get("monto",0))
+    boleta.amount = int(boleta_details["recaudaciones"][0].get("monto", 0))
     boleta.save()
 
     return {
@@ -342,7 +359,7 @@ def get_boleta_details(id, auth_headers, configuration=default_config):
     config_ventas_url = configuration["config_ventas_url"]
     try:
         result = requests.get(
-            "{}/ventas/{}".format(config_ventas_url,id),
+            "{}/ventas/{}".format(config_ventas_url, id),
             headers=auth_headers
         )
         error_response = result
@@ -351,7 +368,8 @@ def get_boleta_details(id, auth_headers, configuration=default_config):
         raise_boleta_error(error_response, e)
     return result.json()
 
-def get_boletas(auth_headers, since, state="CONTABILIZADA",configuration=default_config):
+
+def get_boletas(auth_headers, since, state="CONTABILIZADA", configuration=default_config):
     """
     Recovers all boletas since a given date
     Arguments:
@@ -367,7 +385,8 @@ def get_boletas(auth_headers, since, state="CONTABILIZADA",configuration=default
     config_ventas_url = configuration["config_ventas_url"]
     try:
         result = requests.get(
-            "{}/ventas/?fecha-desde={}&estado={}".format(config_ventas_url,since,state),
+            "{}/ventas/?fecha-desde={}&estado={}".format(
+                config_ventas_url, since, state),
             headers=auth_headers
         )
         error_response = result
@@ -377,6 +396,8 @@ def get_boletas(auth_headers, since, state="CONTABILIZADA",configuration=default
     return result.json()
 
 # VIEWS
+
+
 def recover_boleta(request, configuration=default_config):
     """
     Recover boleta PDF from UChile API given the order_number on
@@ -385,19 +406,21 @@ def recover_boleta(request, configuration=default_config):
     CACHE the Boleta PDF response
     """
 
-    if not hasattr(settings, 'BOLETA_CONFIG') or settings.BOLETA_CONFIG.get('enabled',False) == False:
+    if not hasattr(settings, 'BOLETA_CONFIG') or settings.BOLETA_CONFIG.get('enabled', False) == False:
         raise Http404("Boletas desactivadas para ecommerce")
     # Error context
     context = {
         "order_number": "",
         "msg": "Hubo un error al recuperar su boleta electrónica.",
-        "payment_support_email": request.site.siteconfiguration.payment_support_email
+        "payment_support_email": request.site.siteconfiguration.payment_support_email,
+        "order_dashboard_url": get_lms_dashboard_url(),
+        "explore_courses_url": get_lms_explore_courses_url(),
     }
 
     if not request.user.is_authenticated:
         context['msg'] = '¡Debe estar autenticado en el sistema!.'
-        return render(request, "edx/checkout/boleta_error.html",context)
-        
+        return render(request, "edx/checkout/boleta_error.html", context)
+
     user_id = request.user.id
 
     # Recover boleta info
@@ -406,38 +429,45 @@ def recover_boleta(request, configuration=default_config):
     else:
         logger.error("No Order provided to recover_boleta")
         context['msg'] = '¡Debe proveer un número de orden!.'
-        return render(request, "edx/checkout/boleta_error.html",context)
+        return render(request, "edx/checkout/boleta_error.html", context)
 
     context["order_number"] = order_number
 
     try:
-        boleta = BoletaElectronica.objects.get(basket__order__number=order_number)
+        boleta = BoletaElectronica.objects.get(
+            basket__order__number=order_number)
         if (not request.user.is_superuser) and (boleta.basket.owner.id != user_id):
-            logger.error("User does not own the Basket provided to recover_boleta")
+            logger.error(
+                "User does not own the Basket provided to recover_boleta")
             context['msg'] = 'El usuario no es dueño de la orden solicitada.'
-            return render(request, "edx/checkout/boleta_error.html",context)
-    
+            return render(request, "edx/checkout/boleta_error.html", context)
+
         # Create buffer and populate
         boleta_auth = authenticate_boleta_electronica(configuration)
         config_ventas_url = configuration["config_ventas_url"]
 
         # Cache the PDF response
-        pdf_url = '{}/ventas/{}/boletas/pdf'.format(config_ventas_url,boleta.voucher_id)
+        pdf_url = '{}/ventas/{}/boletas/pdf'.format(
+            config_ventas_url, boleta.voucher_id)
         file = cache.get(pdf_url)
         if file == None:
-            file = requests.get(pdf_url,headers={"Authorization": "Bearer {}".format(boleta_auth["access_token"])})
+            file = requests.get(pdf_url, headers={
+                                "Authorization": "Bearer {}".format(boleta_auth["access_token"])})
             file.raise_for_status()
             # Add to cache only if status was OK (no exception on status)
-            cache.set(pdf_url, file, 60 * settings.BOLETA_CONFIG.get("pdf_cache",10))
+            cache.set(pdf_url, file, 60 *
+                      settings.BOLETA_CONFIG.get("pdf_cache", 10))
         buffer = io.BytesIO(file.content)
         pdfName = 'boleta-{}.pdf'.format(boleta.voucher_id)
 
         return FileResponse(buffer, as_attachment=True, filename=pdfName)
     except BoletaElectronica.DoesNotExist:
-        logger.error("Boleta Electronica does not exists, number: "+str(order_number))
+        logger.error(
+            "Boleta Electronica does not exists, number: "+str(order_number))
         context['msg'] = 'La boleta solicitada no existe.'
-        return render(request, "edx/checkout/boleta_error.html",context)
+        return render(request, "edx/checkout/boleta_error.html", context)
     # also BoletaElectronicaException and requests.exceptions.ConnectionError
     except Exception as e:
-        logger.error("Error while getting Boleta Electronica PDF {}".format(e), exc_info=True)
-        return render(request, "edx/checkout/boleta_error.html",context)
+        logger.error(
+            "Error while getting Boleta Electronica PDF {}".format(e), exc_info=True)
+        return render(request, "edx/checkout/boleta_error.html", context)

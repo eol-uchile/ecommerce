@@ -60,18 +60,18 @@ class TestBoletaEmissionsCommand(BoletaMixin, TestCase):
     @responses.activate
     def test_empty(self):
         with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
-            self.add_boleta_auth()
-            self.add_boleta_get_boletas_custom(self.DATE_1, [])
-            self.add_boleta_get_boletas_custom(self.DATE_1, [], status="INGRESADA")
+            self.mock_boleta_auth()
+            self.mock_boleta_get_boletas_custom(self.DATE_1, [])
+            self.mock_boleta_get_boletas_custom(self.DATE_1, [], status="INGRESADA")
             self.call_command_action(self.DATE_1)
             self.assertEqual(0, self.count_boletas())
 
     @responses.activate
     def test_empty_mail(self):
         with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
-            self.add_boleta_auth()
-            self.add_boleta_get_boletas_custom(self.DATE_1, [])
-            self.add_boleta_get_boletas_custom(self.DATE_1, [], status="INGRESADA")
+            self.mock_boleta_auth()
+            self.mock_boleta_get_boletas_custom(self.DATE_1, [])
+            self.mock_boleta_get_boletas_custom(self.DATE_1, [], status="INGRESADA")
             self.call_command_action(self.DATE_1, "--email")
             self.assertEqual(0, self.count_boletas())
 
@@ -81,9 +81,9 @@ class TestBoletaEmissionsCommand(BoletaMixin, TestCase):
             one_boleta = self.make_boletas(number=1)
             self.assertEqual(1, self.count_boletas())
 
-            self.add_boleta_auth()
-            self.add_boleta_get_boletas_custom(self.DATE_1, one_boleta)
-            self.add_boleta_get_boletas_custom(self.DATE_1, [], status="INGRESADA")
+            self.mock_boleta_auth()
+            self.mock_boleta_get_boletas_custom(self.DATE_1, one_boleta)
+            self.mock_boleta_get_boletas_custom(self.DATE_1, [], status="INGRESADA")
             self.call_command_action(self.DATE_1)
     
     @responses.activate
@@ -92,9 +92,9 @@ class TestBoletaEmissionsCommand(BoletaMixin, TestCase):
             one_boleta = self.make_boletas(number=1)
             self.assertEqual(1, self.count_boletas())
 
-            self.add_boleta_auth()
-            self.add_boleta_get_boletas_custom(self.DATE_1, one_boleta)
-            self.add_boleta_get_boletas_custom(self.DATE_1, [], status="INGRESADA")
+            self.mock_boleta_auth()
+            self.mock_boleta_get_boletas_custom(self.DATE_1, one_boleta)
+            self.mock_boleta_get_boletas_custom(self.DATE_1, [], status="INGRESADA")
             self.call_command_action(self.DATE_1,"--email")
     
     @responses.activate
@@ -105,9 +105,9 @@ class TestBoletaEmissionsCommand(BoletaMixin, TestCase):
             BoletaElectronica.objects.all().delete()
             self.assertEqual(0, self.count_boletas())
 
-            self.add_boleta_auth()
-            self.add_boleta_get_boletas_custom(self.DATE_1, one_boleta)
-            self.add_boleta_get_boletas_custom(self.DATE_1, [], status="INGRESADA")
+            self.mock_boleta_auth()
+            self.mock_boleta_get_boletas_custom(self.DATE_1, one_boleta)
+            self.mock_boleta_get_boletas_custom(self.DATE_1, [], status="INGRESADA")
             self.assertRaises(CommandError, self.call_command_action, self.DATE_1)
     
     @responses.activate
@@ -118,9 +118,9 @@ class TestBoletaEmissionsCommand(BoletaMixin, TestCase):
             BoletaElectronica.objects.all().delete()
             self.assertEqual(0, self.count_boletas())
 
-            self.add_boleta_auth()
-            self.add_boleta_get_boletas_custom(self.DATE_1, one_boleta)
-            self.add_boleta_get_boletas_custom(self.DATE_1, [], status="INGRESADA")
+            self.mock_boleta_auth()
+            self.mock_boleta_get_boletas_custom(self.DATE_1, one_boleta)
+            self.mock_boleta_get_boletas_custom(self.DATE_1, [], status="INGRESADA")
             self.assertRaises(CommandError, self.call_command_action, self.DATE_1, "--email")
 
     @responses.activate
@@ -131,9 +131,9 @@ class TestBoletaEmissionsCommand(BoletaMixin, TestCase):
             BoletaElectronica.objects.last().delete()
             self.assertEqual(1, self.count_boletas())
 
-            self.add_boleta_auth()
-            self.add_boleta_get_boletas_custom(self.DATE_1, two_boletas)
-            self.add_boleta_get_boletas_custom(self.DATE_1, [], status="INGRESADA")
+            self.mock_boleta_auth()
+            self.mock_boleta_get_boletas_custom(self.DATE_1, two_boletas)
+            self.mock_boleta_get_boletas_custom(self.DATE_1, [], status="INGRESADA")
             self.assertRaises(CommandError, self.call_command_action, self.DATE_1)
     
     @responses.activate
@@ -144,9 +144,9 @@ class TestBoletaEmissionsCommand(BoletaMixin, TestCase):
             BoletaElectronica.objects.last().delete()
             self.assertEqual(1, self.count_boletas())
 
-            self.add_boleta_auth()
-            self.add_boleta_get_boletas_custom(self.DATE_1, two_boletas)
-            self.add_boleta_get_boletas_custom(self.DATE_1, [], status="INGRESADA")
+            self.mock_boleta_auth()
+            self.mock_boleta_get_boletas_custom(self.DATE_1, two_boletas)
+            self.mock_boleta_get_boletas_custom(self.DATE_1, [], status="INGRESADA")
             self.assertRaises(CommandError, self.call_command_action, self.DATE_1, "--email")
 
     @responses.activate
@@ -157,9 +157,9 @@ class TestBoletaEmissionsCommand(BoletaMixin, TestCase):
             BoletaElectronica.objects.last().delete()
             self.assertEqual(1, self.count_boletas())
 
-            self.add_boleta_auth()
-            self.add_boleta_get_boletas_custom(self.DATE_1, two_boletas, status="INGRESADA")
-            self.add_boleta_get_boletas_custom(self.DATE_1, [])
+            self.mock_boleta_auth()
+            self.mock_boleta_get_boletas_custom(self.DATE_1, two_boletas, status="INGRESADA")
+            self.mock_boleta_get_boletas_custom(self.DATE_1, [])
             self.assertRaises(CommandError, self.call_command_action, self.DATE_1)
     
     @responses.activate
@@ -170,9 +170,9 @@ class TestBoletaEmissionsCommand(BoletaMixin, TestCase):
             BoletaElectronica.objects.last().delete()
             self.assertEqual(1, self.count_boletas())
 
-            self.add_boleta_auth()
-            self.add_boleta_get_boletas_custom(self.DATE_1, two_boletas, status="INGRESADA")
-            self.add_boleta_get_boletas_custom(self.DATE_1, [])
+            self.mock_boleta_auth()
+            self.mock_boleta_get_boletas_custom(self.DATE_1, two_boletas, status="INGRESADA")
+            self.mock_boleta_get_boletas_custom(self.DATE_1, [])
             self.assertRaises(CommandError, self.call_command_action, self.DATE_1, "--email")
     
     @responses.activate
@@ -191,9 +191,9 @@ class TestBoletaEmissionsCommand(BoletaMixin, TestCase):
                 )
             boleta.save()
 
-            self.add_boleta_auth()
-            self.add_boleta_get_boletas_custom(self.DATE_1, two_boletas)
-            self.add_boleta_get_boletas_custom(self.DATE_1, [], status="INGRESADA")
+            self.mock_boleta_auth()
+            self.mock_boleta_get_boletas_custom(self.DATE_1, two_boletas)
+            self.mock_boleta_get_boletas_custom(self.DATE_1, [], status="INGRESADA")
             self.assertRaises(CommandError, self.call_command_action, self.DATE_1)
     
     @responses.activate
@@ -212,9 +212,9 @@ class TestBoletaEmissionsCommand(BoletaMixin, TestCase):
                 )
             boleta.save()
 
-            self.add_boleta_auth()
-            self.add_boleta_get_boletas_custom(self.DATE_1, two_boletas)
-            self.add_boleta_get_boletas_custom(self.DATE_1, [], status="INGRESADA")
+            self.mock_boleta_auth()
+            self.mock_boleta_get_boletas_custom(self.DATE_1, two_boletas)
+            self.mock_boleta_get_boletas_custom(self.DATE_1, [], status="INGRESADA")
             self.assertRaises(CommandError, self.call_command_action, self.DATE_1, "--email")
 
     @responses.activate
@@ -223,9 +223,9 @@ class TestBoletaEmissionsCommand(BoletaMixin, TestCase):
             two_boletas = self.make_boletas(number=1, repeat=2)
             self.assertEqual(1, self.count_boletas())
 
-            self.add_boleta_auth()
-            self.add_boleta_get_boletas_custom(self.DATE_1, two_boletas)
-            self.add_boleta_get_boletas_custom(self.DATE_1, [], status="INGRESADA")
+            self.mock_boleta_auth()
+            self.mock_boleta_get_boletas_custom(self.DATE_1, two_boletas)
+            self.mock_boleta_get_boletas_custom(self.DATE_1, [], status="INGRESADA")
             self.assertRaises(CommandError, self.call_command_action, self.DATE_1)
 
     @responses.activate
@@ -234,7 +234,7 @@ class TestBoletaEmissionsCommand(BoletaMixin, TestCase):
             two_boletas = self.make_boletas(number=1, repeat=2)
             self.assertEqual(1, self.count_boletas())
 
-            self.add_boleta_auth()
-            self.add_boleta_get_boletas_custom(self.DATE_1, two_boletas)
-            self.add_boleta_get_boletas_custom(self.DATE_1, [], status="INGRESADA")
+            self.mock_boleta_auth()
+            self.mock_boleta_get_boletas_custom(self.DATE_1, two_boletas)
+            self.mock_boleta_get_boletas_custom(self.DATE_1, [], status="INGRESADA")
             self.assertRaises(CommandError, self.call_command_action, self.DATE_1, "--email")

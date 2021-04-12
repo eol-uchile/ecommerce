@@ -10,16 +10,16 @@ from django.core.management import call_command
 from django.core.mail import send_mail
 from django.db import transaction
 from django.http import Http404, HttpResponseBadRequest, HttpResponseRedirect
-from django.shortcuts import redirect
+from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
-from django.views.generic import View
-from django.views.generic import RedirectView, TemplateView
+from django.views.generic import View, RedirectView, TemplateView
 from oscar.apps.partner import strategy
 from oscar.apps.payment.exceptions import PaymentError
 from oscar.core.loading import get_class, get_model
 
+from ecommerce.core.url_utils import get_lms_dashboard_url, get_lms_explore_courses_url
 from ecommerce.extensions.basket.utils import basket_add_organization_attribute
 from ecommerce.extensions.checkout.mixins import EdxOrderPlacementMixin
 from ecommerce.extensions.checkout.utils import get_receipt_page_url
@@ -94,7 +94,7 @@ class WebpayPaymentNotificationView(EdxOrderPlacementMixin, View):
 
     def post(self, request):
         """Handle a notification received by Webpay with status update of a transaction"""
-        token = request.POST.get("token_ws")
+        token = request.POST.get("token_ws",'')
         logger.info("Payment token [%s] update received by Webpay", token)
         try:
             payment = self.payment_processor.get_transaction_data(token)
@@ -126,12 +126,10 @@ class WebpayPaymentNotificationView(EdxOrderPlacementMixin, View):
             # Verify correct initialization, Commit order on webpay
             # Record response on DB
             self.handle_payment(payment, basket)
-        except WebpayTransactionDeclined:
+        except WebpayTransactionDeclined as webpayException:
             # Cancel the basket, as the transaction was declined
-            raise Http404("Transacción declinada por Webpay. Guarde su número de orden {}.".format(order_number))
-        except PaymentError:
-            self.send_simple_alert_to_eol(request.site,"Error inesperado al procesar el pago en ecommerce. ", order_number=order_number, payed=True, user=basket.owner)
-            return redirect(self.payment_processor.error_url)
+            return HttpResponseRedirect("{}?code={}&order={}".format(reverse('webpay:failure'),webpayException.code, order_number))
+            #raise Http404("Transacción declinada por Webpay. Guarde su número de orden {}.".format(order_number))
         except WebpayRefundRequired:
             # Cancel the basket, as the transaction was declined
             self.send_simple_alert_to_eol(request.site,"Inconsistencia en montos de pagos cobrados o pago ya registrado. Se necesita un reembolso. ", order_number=order_number, payed=True, user=basket.owner)
@@ -176,3 +174,31 @@ class WebpayPaymentNotificationView(EdxOrderPlacementMixin, View):
             logger.exception(self.order_placement_failure_msg, payment['buy_order'], basket.id)
             self.send_simple_alert_to_eol(request.site,". ", order_number=order_number, payed=True, user=basket.owner)
             raise Http404("Hubo un error al cerrar la orden en ecommerce. Guarde su número de orden {}".format(order_number))
+
+class WebpayErrorView(View):
+
+    def get(self, request):
+        code = request.GET.get("code",'')
+        order = request.GET.get("order",'')
+        # Error context
+        context = {
+            "payment_support_email": request.site.siteconfiguration.payment_support_email,
+            "order_dashboard_url": get_lms_dashboard_url(),
+            "explore_courses_url": get_lms_explore_courses_url(),
+            "order_number": order,
+        }
+        # Reference https://www.transbankdevelopers.cl/producto/webpay#codigos-de-respuesta-de-autorizacion
+        # but we may just ignore the explanations in the future
+        if code == "-1":
+            context["msg"] = "Detalle: posible error en el ingreso de datos de la transacción"
+        elif code == "-2":
+            context["msg"] = "Detalle: se produjo fallo al procesar la transacción."
+        elif code == "-3":
+            context["msg"] = "Detalle: existe un problema desde Transbank."
+        elif code == "-4":
+            context["msg"] = "Detalle: operación rechazada por parte del emisor."
+        else:
+            # Omit details
+            context["msg"] = "Detalle: existe un problema desde Transbank."
+
+        return render(request, "edx/checkout/webpay_error.html",context)

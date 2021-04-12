@@ -46,7 +46,7 @@ class BoletaTests(BoletaMixin, TestCase):
 
     @responses.activate
     def test_authenticate_success(self):
-        self.add_boleta_auth()
+        self.mock_boleta_auth()
         self.assertEqual({
             "access_token": "test",
             "codigoSII": "codigo sucursal",
@@ -57,7 +57,7 @@ class BoletaTests(BoletaMixin, TestCase):
 
     @responses.activate
     def test_authenticate_fail(self):
-        self.add_boleta_auth_refused()
+        self.mock_boleta_auth_refused()
         self.assertRaises(BoletaElectronicaException,
                           authenticate_boleta_electronica, basket=self.basket)
         self.assertEqual(1, self.count_boleta_errors())
@@ -94,9 +94,9 @@ class BoletaTests(BoletaMixin, TestCase):
 
     @responses.activate
     def test_boleta_success(self):
-        self.add_boleta_auth()
-        self.add_boleta_creation()
-        self.add_boleta_details(self.order.total_incl_tax)
+        self.mock_boleta_auth()
+        self.mock_boleta_creation()
+        self.mock_boleta_details(self.order.total_incl_tax)
         self.make_billing_info_helper('0', 'CL', self.basket)
 
         auth = authenticate_boleta_electronica()
@@ -111,9 +111,9 @@ class BoletaTests(BoletaMixin, TestCase):
 
     @responses.activate
     def test_boleta_success_no_details(self):
-        self.add_boleta_auth()
-        self.add_boleta_creation()
-        self.add_boleta_details_404()
+        self.mock_boleta_auth()
+        self.mock_boleta_creation()
+        self.mock_boleta_details_404()
         self.make_billing_info_helper('0', 'CL', self.basket)
 
         auth = authenticate_boleta_electronica()
@@ -129,8 +129,8 @@ class BoletaTests(BoletaMixin, TestCase):
 
     @responses.activate
     def test_boleta_failure(self):
-        self.add_boleta_auth()
-        self.add_boleta_creation_500()
+        self.mock_boleta_auth()
+        self.mock_boleta_creation_500()
         self.make_billing_info_helper('0', 'CL', self.basket)
 
         auth = authenticate_boleta_electronica()
@@ -146,8 +146,8 @@ class BoletaTests(BoletaMixin, TestCase):
 
     @responses.activate
     def test_get_boleta_details(self):
-        self.add_boleta_auth()
-        self.add_boleta_details(self.order.total_incl_tax)
+        self.mock_boleta_auth()
+        self.mock_boleta_details(self.order.total_incl_tax)
         auth = authenticate_boleta_electronica()
 
         with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
@@ -163,9 +163,9 @@ class BoletaTests(BoletaMixin, TestCase):
 
     @responses.activate
     def test_get_boleta_details_error(self):
-        self.add_boleta_auth()
+        self.mock_boleta_auth()
         auth = authenticate_boleta_electronica()
-        self.add_boleta_details_404()
+        self.mock_boleta_details_404()
 
         with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
             self.assertRaises(BoletaElectronicaException, get_boleta_details,
@@ -175,8 +175,8 @@ class BoletaTests(BoletaMixin, TestCase):
 
     @responses.activate
     def test_get_boletas(self):
-        self.add_boleta_auth()
-        self.add_boleta_get_boletas(
+        self.mock_boleta_auth()
+        self.mock_boleta_get_boletas(
             "2020-03-01T00:00:00",
             total=self.order.total_incl_tax,
             order_number=self.order.number
@@ -197,9 +197,9 @@ class BoletaTests(BoletaMixin, TestCase):
 
     @responses.activate
     def test_get_boletas_error(self):
-        self.add_boleta_auth()
+        self.mock_boleta_auth()
         auth = authenticate_boleta_electronica()
-        self.add_boleta_get_boletas_500("2020-03-01T00:00:00")
+        self.mock_boleta_get_boletas_500("2020-03-01T00:00:00")
 
         with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
             self.assertRaises(BoletaElectronicaException, get_boletas, {
@@ -251,8 +251,8 @@ class BoletaViewsTests(BoletaMixin, TestCase):
     def test_recover_boleta_owner(self):
         with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
             boleta = self.create_boleta()
-            self.add_boleta_auth()
-            self.add_boleta_get_file(boleta.voucher_id)
+            self.mock_boleta_auth()
+            self.mock_boleta_get_file(boleta.voucher_id)
             self.client.login(username=self.user.username, password=self.password)
             response = self.client.get(reverse("recover_boleta"),{"order_number": self.order.number})
             self.assertContains(response, "I'm a PDF file")
@@ -261,8 +261,8 @@ class BoletaViewsTests(BoletaMixin, TestCase):
     def test_recover_boleta_owner_404(self):
         with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
             boleta = self.create_boleta()
-            self.add_boleta_auth()
-            self.add_boleta_get_file_404(boleta.voucher_id)
+            self.mock_boleta_auth()
+            self.mock_boleta_get_file_404(boleta.voucher_id)
             self.client.login(username=self.user.username, password=self.password)
             response = self.client.get(reverse("recover_boleta"),{"order_number": self.order.number})
             self.assertTemplateUsed(response, "edx/checkout/boleta_error.html")
@@ -287,8 +287,8 @@ class BoletaViewsTests(BoletaMixin, TestCase):
             # Change user ownership
             self.basket.owner = self.create_user()
             self.basket.save()
-            self.add_boleta_auth()
-            self.add_boleta_get_file(boleta.voucher_id)
+            self.mock_boleta_auth()
+            self.mock_boleta_get_file(boleta.voucher_id)
             # Add privilege
             self.user.is_superuser = True
             self.user.save()
