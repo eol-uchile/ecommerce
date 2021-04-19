@@ -4,10 +4,8 @@ import os
 from io import StringIO
 from six.moves.urllib.parse import urlencode
 
-from django.conf import settings
 from django.core.exceptions import MultipleObjectsReturned
 from django.core.management import call_command
-from django.core.mail import send_mail
 from django.db import transaction
 from django.http import Http404, HttpResponseBadRequest, HttpResponseRedirect
 from django.shortcuts import redirect, render
@@ -24,6 +22,7 @@ from ecommerce.extensions.basket.utils import basket_add_organization_attribute
 from ecommerce.extensions.checkout.mixins import EdxOrderPlacementMixin
 from ecommerce.extensions.checkout.utils import get_receipt_page_url
 from ecommerce.extensions.payment.processors.webpay import Webpay, WebpayAlreadyProcessed, WebpayTransactionDeclined, WebpayRefundRequired
+from ecommerce.extensions.payment.views import EolAlertMixin
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +31,7 @@ PaymentProcessorResponse = get_model('payment', 'PaymentProcessorResponse')
 NoShippingRequired = get_class('shipping.methods', 'NoShippingRequired')
 OrderTotalCalculator = get_class('checkout.calculators', 'OrderTotalCalculator')
 
-class WebpayPaymentNotificationView(EdxOrderPlacementMixin, View):
+class WebpayPaymentNotificationView(EolAlertMixin, EdxOrderPlacementMixin, View):
     """Process the Webpay notification of a completed transaction"""
     @property
     def payment_processor(self):
@@ -47,19 +46,6 @@ class WebpayPaymentNotificationView(EdxOrderPlacementMixin, View):
     def dispatch(self, request, *args, **kwargs):
         return super(WebpayPaymentNotificationView, self).dispatch(request, *args, **kwargs)
 
-    def send_simple_alert_to_eol(self, site, message, order_number=None, payed=False, user=None):
-        if hasattr(settings, 'BOLETA_CONFIG') and (settings.BOLETA_CONFIG.get('enabled',False)):
-            payed_message = "Se realizó el pago exitósamente. " if payed else "No se efectuó pago. "
-            user_message = "" if user is None else "Usuario de correo {} y nombre {}. ".format(user.email, user.full_name)
-            order_message = "" if order_number is None else "Número de orden {}. ".format(order_number)
-            error_mail_footer = "\nOriginado en {} con partner {}".format(site.domain,site.siteconfiguration.lms_url_root)
-            send_mail(
-                'Webpay - Error inesperado',
-                "Lugar: vista de notificacion de webpay.\nDescripción: {}{}{}La orden no fue generada con éxito.{}\n\n{}".format(message,user_message,payed_message, order_message, error_mail_footer),
-                settings.BOLETA_CONFIG.get("from_email",None),
-                [settings.BOLETA_CONFIG.get("team_email","")],
-                fail_silently=True
-            )
 
     def _get_basket(self, payment_id):
         """
@@ -167,7 +153,7 @@ class WebpayPaymentNotificationView(EdxOrderPlacementMixin, View):
             self.handle_post_order(order)
 
             # Order is created; then send email if enabled
-            self.payment_processor.boleta_emission(basket, order)
+            self.payment_processor.boleta_emission(basket, order, logger)
 
             return HttpResponseRedirect("{}?order_number={}".format(reverse('checkout:receipt'),order_number))
         except Exception as e:  # pylint: disable=broad-except

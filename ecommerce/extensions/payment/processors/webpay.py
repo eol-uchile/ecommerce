@@ -5,26 +5,19 @@ import hashlib
 import hmac
 import logging
 import requests
-import traceback
-import string
 import urllib.request
 import urllib.parse
 import urllib.error
 from urllib.parse import urljoin
 from collections import OrderedDict
 from decimal import Decimal
-from itertools import cycle
 import xml.etree.ElementTree as xml
 
 from django.urls import reverse
-from django.conf import settings
-from django.core.mail import send_mail
 from oscar.apps.payment.exceptions import GatewayError, TransactionDeclined
 from oscar.core.loading import get_class, get_model
 
-from ecommerce.extensions.payment.processors import BasePaymentProcessor, HandledProcessorResponse
-from ecommerce.extensions.payment.models import UserBillingInfo, BoletaErrorMessage
-from ecommerce.extensions.payment.boleta import authenticate_boleta_electronica, make_boleta_electronica, BoletaElectronicaException
+from ecommerce.extensions.payment.processors import BasePaymentProcessor, HandledProcessorResponse, EolBillingMixin
 from ecommerce.extensions.payment.exceptions import PartialAuthorizationError
 from ecommerce.extensions.checkout.utils import get_receipt_page_url
 from ecommerce.core.url_utils import get_ecommerce_url
@@ -63,7 +56,7 @@ class WebpayRefundRequired(Exception):
     pass
 
 
-class Webpay(BasePaymentProcessor):
+class Webpay(EolBillingMixin, BasePaymentProcessor):
     """
     Webpay PLUS
     """
@@ -75,32 +68,9 @@ class Webpay(BasePaymentProcessor):
         Construct a new instance of the Webpay processor.
         """
         super(Webpay, self).__init__(site)
-        self.VALID_CHARS = string.digits+'Kk'
+        
 
-    def validateRUT(self, rut):
-        """
-            Verify if the 'rut' is valid
-            Reference: https://github.com/eol-uchile/uchileedxlogin/blob/master/uchileedxlogin/views.py#L283
-        """
-        rut = rut.upper()
-        rut = rut.replace("-", "")
-        rut = rut.replace(".", "")
-        rut = rut.strip()
-        aux = rut[:-1]
-        dv = rut[-1:]
-
-        revertido = list(map(int, reversed(str(aux))))
-        factors = cycle(list(range(2, 8)))
-        s = sum(d * f for d, f in zip(revertido, factors))
-        res = (-s) % 11
-
-        if str(res) == dv:
-            return True
-        elif dv == "K" and res == 10:
-            return True
-        else:
-            return False
-
+    
     def get_transaction_parameters(self, basket, request=None, use_client_side_checkout=False, **kwargs):
         """
         Create a new Webpay payment.
@@ -120,16 +90,7 @@ class Webpay(BasePaymentProcessor):
         notify_url = self.notify_url
 
         # Before anything verify fields
-        id_type = request.data.get("id_option")
-        id_number = request.data.get("id_number")
-        if id_type == "0":
-            # Clean and add dash
-            id_number = [c for c in id_number if c in self.VALID_CHARS]
-            id_number.insert(-1, "-")
-            id_number = "".join(id_number)
-            valid_rut = self.validateRUT(id_number)
-            if not valid_rut:
-                raise Exception("RUT {} Failed Validation".format(id_number))
+        id_type, id_number = self.verifyIdNumber(request)
 
         result = requests.post(self.configuration["api_url"]+"/process-webpay", json={
             "notify_url": notify_url.replace("http://", "https://"),
@@ -140,14 +101,9 @@ class Webpay(BasePaymentProcessor):
 
         if result.status_code == 403 or result.status_code == 500:
             site = basket.site
-            send_mail(
-                'Webpay Service Error',
-                "Lugar: procesador de pago webpay\nDescripción: El servicio de conexión a Webpay falló con código {} al crear la petición inicial.\nEn caso de error 500 revisar los logs del servicio.\nSi el error es 403 las llaves de autenticación se encuentran mal configuradas.\nOrigen {} con partner {}".format(
-                    result.status_code, site.domain, site.siteconfiguration.lms_url_root),
-                settings.BOLETA_CONFIG.get("from_email", None),
-                [settings.BOLETA_CONFIG.get("team_email", "")],
-                fail_silently=False
-            )
+            self.send_support_email('Webpay Service Error',
+             "Lugar: procesador de pago webpay\nDescripción: El servicio de conexión a Webpay falló con código {} al crear la petición inicial.\nEn caso de error 500 revisar los logs del servicio.\nSi el error es 403 las llaves de autenticación se encuentran mal configuradas.\nOrigen {} con partner {}".format(result.status_code, site.domain, site.siteconfiguration.lms_url_root)
+             )
             raise GatewayError(
                 "Webpay module has failed, error code {}".format(result.status_code))
 
@@ -168,55 +124,9 @@ class Webpay(BasePaymentProcessor):
             'token_ws': result['token'],
         }
 
-        # Overwrite userInfo:
-        # sometimes the requests might duplicate
-        # and a previous info might exists
-        previous_user_info = UserBillingInfo.objects.filter(basket=basket)
-        previous_user_info_count = previous_user_info.count()
-        if previous_user_info_count == 0:
-            # After all is ready register the billing info
-            billing_info = UserBillingInfo(
-                billing_district=request.data.get("billing_district"),
-                billing_city=request.data.get("billing_city"),
-                billing_address=request.data.get("billing_address"),
-                billing_country_iso2=request.data.get("billing_country"),
-                id_number=id_number,
-                id_option=request.data.get("id_option"),
-                id_other=request.data.get("id_other"),
-                basket=basket,
-                first_name=request.data.get("first_name"),
-                last_name_1=request.data.get("last_name_1"),
-                last_name_2=request.data.get("last_name_2"))
-            billing_info.save()
-
-            return parameters
-
-        # Always use first
-        previous = previous_user_info.first()
-
-        previous.billing_district = request.data.get("billing_district")
-        previous.billing_city = request.data.get("billing_city")
-        previous.billing_address = request.data.get("billing_address")
-        previous.billing_country_iso2 = request.data.get("billing_country")
-        previous.id_number = id_number
-        previous.id_option = request.data.get("id_option")
-        previous.id_other = request.data.get("id_other")
-        previous.basket = basket
-        previous.first_name = request.data.get("first_name")
-        previous.last_name_1 = request.data.get("last_name_1")
-        previous.last_name_2 = request.data.get("last_name_2")
-        previous.save()
+        self.createUserBillingInfo(request, basket, id_type, id_number, self.NAME)
 
         return parameters
-
-    def send_support_email(self, subject, message):
-        if hasattr(settings, 'BOLETA_CONFIG') and (settings.BOLETA_CONFIG.get('enabled', False)):
-            send_mail(
-                    subject, message,
-                    settings.BOLETA_CONFIG.get("from_email", None),
-                    [settings.BOLETA_CONFIG.get("team_email", "")],
-                    fail_silently=False
-                )
 
     def handle_processor_response(self, response, basket):
         """
@@ -284,68 +194,8 @@ class Webpay(BasePaymentProcessor):
                 basket.order_number, basket.id, commited_response))
             raise WebpayTransactionDeclined(commited_response['response_code'])
 
-    def boleta_emission(self, basket, order):
-        """
-        Create boleta using Ventas API. Send email if enabled.
-
-        Arguments:
-            basket: basket with unit prices
-            order: completed order with prices and discounts
-        Raises:
-            WebpayTransactionDeclined
-        """
-        if hasattr(settings, 'BOLETA_CONFIG') and (settings.BOLETA_CONFIG.get('enabled', False) and settings.BOLETA_CONFIG.get('generate_on_payment', False)):
-            # Boleta can be issued using the boleta_emissions commmand
-            # thus we no longer abort payment
-            site=basket.site
-            error_mail_footer="\nOriginado en {} con partner {}".format(
-                site.domain, site.siteconfiguration.lms_url_root)
-            try:
-                # DATA FLOW FROM WEBPAY TO BOLETA ELECTRONICA
-                boleta_auth=authenticate_boleta_electronica(basket=basket)
-                boleta_id=make_boleta_electronica(
-                    basket,
-                    order,
-                    boleta_auth
-                )
-            except requests.exceptions.ConnectTimeout:
-                logger.error("BOLETA API couldn't connect. {}".format(e))
-                self.send_support_email(
-                    'Boleta Electronica API Error(s)',
-                    "Lugar: procesador de pago webpay.\nDescripción: No se pudo establecer la conexión a la API de Boleta electronica.\nEl nombre no fue resuelto resultando en una request.exceptions.ConnectTimeout.\n"+error_mail_footer,
-                )
-                if settings.BOLETA_CONFIG.get("halt_on_boleta_failure", False):
-                    raise WebpayTransactionDeclined()
-            except BoletaElectronicaException as e:
-                logger.error(
-                    "BOLETA API HAS FAILED. {}".format(e), exc_info=True)
-                try:
-                    boleta_error_message=BoletaErrorMessage.objects.get(
-                        order_number=basket.order_number)
-                    self.send_support_email(
-                        'Boleta Electronica API Error(s)',
-                        "Lugar: procesador de pago webpay.\nDescripción: Hubo un error al obtener la boleta {}.\n\nCodigo de respuesta {}, mensaje {}\n{}".format(
-                            basket.order_number, boleta_error_message.code, boleta_error_message.content, error_mail_footer),
-                    )
-                    boleta_error_message.delete()
-                except BoletaErrorMessage.DoesNotExist:
-                    logger.error(
-                        "Couldn't find order error message, email not sent.")
-                if settings.BOLETA_CONFIG.get("halt_on_boleta_failure", False):
-                    raise WebpayTransactionDeclined()
-            except Exception as e:
-                logger.error(
-                    "BOLETA API had an unexpected error? {}".format(e), exc_info=True)
-                self.send_support_email(
-                    'Boleta Electronica API Error(s)',
-                    "Lugar: procesador de pago webpay.\nDescripción: Hubo un error inesperado al obtener una boleta.\n\nError{}\n{}".format(
-                        traceback.format_exc(), error_mail_footer),
-                )
-                if settings.BOLETA_CONFIG.get("halt_on_boleta_failure", False):
-                    raise WebpayTransactionDeclined()
-
     def issue_credit(self, order_number, basket, reference_number, amount, currency):
-        raise NotImplementedError
+        raise NotImplementedError()
 
     def get_transaction_data(self, token):
         """
@@ -389,7 +239,7 @@ class Webpay(BasePaymentProcessor):
         response=result.json()
         return response
 
-    @ property
+    @property
     def notify_url(self):
         """Url for kiphu to notify a successful transaction"""
         return urljoin(get_ecommerce_url(), reverse('webpay:execute'))

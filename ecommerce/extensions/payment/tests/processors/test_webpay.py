@@ -191,7 +191,7 @@ class WebpayTests(TransbankMixin, BoletaMixin, PaymentProcessorTestCaseMixin, Te
 
             mock_auth.side_effect = requests.exceptions.ConnectTimeout
 
-            self.assertRaises(WebpayTransactionDeclined,
+            self.assertRaises(Exception,
                               self.processor.boleta_emission, self.basket, order)
 
     @patch("django.core.mail.send_mail")
@@ -208,7 +208,7 @@ class WebpayTests(TransbankMixin, BoletaMixin, PaymentProcessorTestCaseMixin, Te
             mock_auth.return_value = True
             mock_boleta.side_effect = requests.exceptions.ConnectTimeout
 
-            self.assertRaises(WebpayTransactionDeclined,
+            self.assertRaises(Exception,
                               self.processor.boleta_emission, self.basket, order)
 
     @patch("django.core.mail.send_mail")
@@ -229,7 +229,7 @@ class WebpayTests(TransbankMixin, BoletaMixin, PaymentProcessorTestCaseMixin, Te
             error = BoletaErrorMessage(
                 content="Error test", order_number=order.number, error_at="boleta")
 
-            self.assertRaises(WebpayTransactionDeclined,
+            self.assertRaises(Exception,
                               self.processor.boleta_emission, self.basket, order)
 
     @patch("django.core.mail.send_mail")
@@ -246,7 +246,7 @@ class WebpayTests(TransbankMixin, BoletaMixin, PaymentProcessorTestCaseMixin, Te
             mock_auth.return_value = True
             mock_boleta.side_effect = Exception
 
-            self.assertRaises(WebpayTransactionDeclined,
+            self.assertRaises(Exception,
                               self.processor.boleta_emission, self.basket, order)
 
     def test_issue_credit(self):

@@ -1,13 +1,20 @@
 
 
+import logging
+import traceback
+import string
 import abc
 import logging
 from collections import namedtuple
+from itertools import cycle
 
 import waffle
 from django.conf import settings
+from django.core.mail import send_mail
 from django.utils.functional import cached_property
 from oscar.core.loading import get_model
+from ecommerce.extensions.payment.models import UserBillingInfo, BoletaErrorMessage, PaypalUSDConversion
+from ecommerce.extensions.payment.boleta import authenticate_boleta_electronica, make_boleta_electronica, BoletaElectronicaException
 
 PaymentProcessorResponse = get_model('payment', 'PaymentProcessorResponse')
 
@@ -162,3 +169,182 @@ class ApplePayMixin:
             str
         """
         return (self.configuration.get('apple_pay_merchant_id_domain_association') or '').strip()
+
+class EolBillingMixin:
+
+    VALID_CHARS = string.digits+'Kk'
+
+    def validateRUT(self, rut):
+        """
+        Verify if the 'rut' is valid
+        Reference: https://github.com/eol-uchile/uchileedxlogin/blob/master/uchileedxlogin/views.py#L283
+        """
+        rut = rut.upper()
+        rut = rut.replace("-", "")
+        rut = rut.replace(".", "")
+        rut = rut.strip()
+        aux = rut[:-1]
+        dv = rut[-1:]
+
+        revertido = list(map(int, reversed(str(aux))))
+        factors = cycle(list(range(2, 8)))
+        s = sum(d * f for d, f in zip(revertido, factors))
+        res = (-s) % 11
+
+        if str(res) == dv:
+            return True
+        elif dv == "K" and res == 10:
+            return True
+        else:
+            return False
+
+    def verifyIdNumber(self, request):
+        # Before anything verify fields
+        id_type = request.data.get("id_option")
+        id_number = request.data.get("id_number")
+        if id_type == "0":
+            # Clean and add dash
+            id_number = [c for c in id_number if c in self.VALID_CHARS]
+            id_number.insert(-1, "-")
+            id_number = "".join(id_number)
+            valid_rut = self.validateRUT(id_number)
+            if not valid_rut:
+                raise Exception("RUT {} Failed Validation".format(id_number))
+
+        return id_type, id_number
+
+    def associate_paypal_conversion_rate(self, basket):
+        try:
+            paypal_conversion = PaypalUSDConversion.objects.first()
+            paypal_conversion.basket.add(basket)
+            paypal_conversion.save()
+
+        except PaypalUSDConversion.DoesNotExist:
+            raise Exception("No Paypal CLP to USD conversion defined")
+
+    def remove_from_paypal_conversion_rate(self, basket):
+        try:
+            paypal_conversion = PaypalUSDConversion.objects.first()
+            paypal_conversion.basket.remove(basket)
+            paypal_conversion.save()
+
+        except PaypalUSDConversion.DoesNotExist:
+            raise Exception("No Paypal CLP to USD conversion defined")
+
+    def createUserBillingInfo(self, request, basket, id_type, id_number, processor="webpay"):
+        # Overwrite userInfo:
+        # sometimes the requests might duplicate
+        # and a previous info might exists
+        previous_user_info = UserBillingInfo.objects.filter(basket=basket)
+        previous_user_info_count = previous_user_info.count()
+        if previous_user_info_count == 0:
+            # After all is ready register the billing info
+            billing_info = UserBillingInfo(
+                billing_district=request.data.get("billing_district"),
+                billing_city=request.data.get("billing_city"),
+                billing_address=request.data.get("billing_address"),
+                billing_country_iso2=request.data.get("billing_country"),
+                id_number=id_number,
+                id_option=request.data.get("id_option"),
+                id_other=request.data.get("id_other"),
+                basket=basket,
+                first_name=request.data.get("first_name"),
+                last_name_1=request.data.get("last_name_1"),
+                last_name_2=request.data.get("last_name_2"),
+                payment_processor=processor)
+            billing_info.save()
+
+            # Associate to paypal
+            if processor == 'paypal':
+                self.associate_paypal_conversion_rate(basket)
+
+            return
+
+        # Always use first
+        previous = previous_user_info.first()
+
+        previous_payment_processor = previous.payment_processor
+        previous.billing_district = request.data.get("billing_district")
+        previous.billing_city = request.data.get("billing_city")
+        previous.billing_address = request.data.get("billing_address")
+        previous.billing_country_iso2 = request.data.get("billing_country")
+        previous.id_number = id_number
+        previous.id_option = request.data.get("id_option")
+        previous.id_other = request.data.get("id_other")
+        previous.basket = basket
+        previous.first_name = request.data.get("first_name")
+        previous.last_name_1 = request.data.get("last_name_1")
+        previous.last_name_2 = request.data.get("last_name_2")
+        previous.payment_processor = processor
+        previous.save()
+
+        # If the payment processor changed disassociate
+        if previous_payment_processor != "paypal" and processor == "paypal":
+            self.associate_paypal_conversion_rate(basket)
+        # If we changed from paypal (somehow) remove from association list
+        elif previous_payment_processor ==  "paypal" and processor != "paypal":
+            self.remove_from_paypal_conversion_rate(basket)
+        # else previous_payment_processor was paypal and processor is paypal
+        # so nothing to do
+
+    def send_support_email(self, subject, message):
+        if hasattr(settings, 'BOLETA_CONFIG') and (settings.BOLETA_CONFIG.get('enabled', False)):
+            send_mail(
+                    subject, message,
+                    settings.BOLETA_CONFIG.get("from_email", None),
+                    [settings.BOLETA_CONFIG.get("team_email", "")],
+                    fail_silently=False
+                )
+
+    def boleta_emission(self, basket, order, logger=logger, payment_processor="webpay"):
+        """
+        Create boleta using Ventas API. Send email if enabled.
+
+        Arguments:
+            basket: basket with unit prices
+            order: completed order with prices and discounts
+        Raises:
+            WebpayTransactionDeclined
+        """
+        if hasattr(settings, 'BOLETA_CONFIG') and (settings.BOLETA_CONFIG.get('enabled', False) and settings.BOLETA_CONFIG.get('generate_on_payment', False)):
+            # Boleta can be issued using the boleta_emissions commmand
+            # thus we no longer abort payment
+            site=basket.site
+            error_mail_footer="\nOriginado en {} con partner {}".format(
+                site.domain, site.siteconfiguration.lms_url_root)
+            try:
+                # DATA FLOW FROM WEBPAY TO BOLETA ELECTRONICA
+                boleta_auth=authenticate_boleta_electronica(basket=basket)
+                boleta_id=make_boleta_electronica(
+                    basket,
+                    order,
+                    boleta_auth,
+                    payment_processor
+                )
+            except BoletaElectronicaException as e:
+                logger.error(
+                    "BOLETA API HAS FAILED. {}".format(e), exc_info=True)
+                try:
+                    boleta_error_message=BoletaErrorMessage.objects.get(
+                        order_number=basket.order_number)
+                    self.send_support_email(
+                        'Boleta Electronica API Error(s)',
+                        "Lugar: procesador de pago webpay.\nDescripción: Hubo un error al obtener la boleta {}.\n\nCodigo de respuesta {}, mensaje {}\n{}".format(
+                            basket.order_number, boleta_error_message.code, boleta_error_message.content, error_mail_footer),
+                    )
+                    boleta_error_message.delete()
+                except BoletaErrorMessage.DoesNotExist:
+                    logger.error(
+                        "Couldn't find order error message, email not sent.")
+                if settings.BOLETA_CONFIG.get("halt_on_boleta_failure", False):
+                    raise Exception()
+            except Exception as e:
+                logger.error(
+                    "BOLETA API had an unexpected error? {}".format(e), exc_info=True)
+                self.send_support_email(
+                    'Boleta Electronica API Error(s)',
+                    "Lugar: procesador de pago webpay.\nDescripción: Hubo un error inesperado al obtener una boleta.\n\nError{}\n{}".format(
+                        traceback.format_exc(), error_mail_footer),
+                )
+                if settings.BOLETA_CONFIG.get("halt_on_boleta_failure", False):
+                    raise Exception()

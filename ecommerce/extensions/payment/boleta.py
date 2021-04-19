@@ -3,6 +3,7 @@ import json
 import logging
 from base64 import b64encode
 from datetime import datetime
+from decimal import Decimal, ROUND_HALF_UP
 
 import requests
 import waffle
@@ -18,7 +19,7 @@ from ecommerce.core.url_utils import (
 )
 
 from ecommerce.extensions.checkout.utils import get_receipt_page_url
-from ecommerce.extensions.payment.models import BoletaElectronica, BoletaErrorMessage, UserBillingInfo
+from ecommerce.extensions.payment.models import BoletaElectronica, BoletaErrorMessage, UserBillingInfo, BoletaUSDConversion
 from ecommerce.notifications.notifications import send_notification
 
 logger = logging.getLogger(__name__)
@@ -181,7 +182,40 @@ def raise_boleta_error(response, e, create_error=False, order=None):
     raise BoletaElectronicaException("http error "+str(e))
 
 
-def make_boleta_electronica(basket, order, auth, configuration=default_config):
+def determine_billable_price(basket, product_line, order, payment_processor='webpay'):
+    """
+    Determine billable price considering discounts
+    and if the sale was done with USD instead of CLP
+    """
+    if payment_processor == 'paypal':
+        # Determine price sent to paypal
+        conversion_rate_used = basket.paypalusdconversion_set.first().clp_to_usd
+        dollars = (Decimal(order.total_incl_tax) / Decimal(conversion_rate_used)).quantize(Decimal('.11'), rounding=ROUND_HALF_UP)
+
+        # Parse to the current billable price
+        billable_conversion_rate = BoletaUSDConversion.objects.first().clp_to_usd
+        unitPrice = (Decimal(dollars) * Decimal(billable_conversion_rate)).quantize(Decimal('1'), rounding=ROUND_HALF_UP)
+        return unitPrice, unitPrice
+    else:
+        # DISCLAIMER:
+        # Currently discounts can only be between 1-99% of price
+        # and only applied when purchasing a SINGLE PRODUCT.
+        # Get price if discount is applied
+        # NOTE: this is redundant but later we might need it
+        unitPrice = product_line.price_incl_tax
+        if order.total_discount_incl_tax != 0 and product_line.quantity == 1:
+            unitPrice = order.total_incl_tax
+
+        return unitPrice, order.total_incl_tax
+
+def associate_boleta_to_conversion(boleta, payment_processor='webpay'):
+    if payment_processor == 'paypal':
+        billable_conversion_rate = BoletaUSDConversion.objects.first()
+        billable_conversion_rate.boleta.add(boleta)
+        billable_conversion_rate.save()
+
+
+def make_boleta_electronica(basket, order, auth, configuration=default_config, payment_processor='webpay'):
     """
     Recover billing information and create a new boleta
     from the UChile API. Finally register info to BoletaElectronica
@@ -196,7 +230,7 @@ def make_boleta_electronica(basket, order, auth, configuration=default_config):
     """
 
     # Get user info
-    billing_info = UserBillingInfo.objects.filter(basket=basket).first()
+    billing_info = UserBillingInfo.objects.filter(basket=basket, payment_processor=payment_processor).first()
     rut = billing_info.id_number
     # Rut del Receptor. Si no se informa, por regulación, se agrega 66666666-6. (Largo máximo 10, formato 12345678-K)
     # NOTE: API RUT max length is 10
@@ -228,13 +262,7 @@ def make_boleta_electronica(basket, order, auth, configuration=default_config):
     itemDescription = make_paragraphs_200(
         "Curso: {}".format(courseTitle), basket.order_number)
 
-    # DISCLAIMER:
-    # Currently discounts can only be between 1-99% of price
-    # and only applied when purchasing a SINGLE PRODUCT.
-    # Get price if discount is applied
-    unitPrice = product_lines[0].price_incl_tax
-    if order.total_discount_incl_tax != 0 and product_lines[0].quantity == 1:
-        unitPrice = order.total_incl_tax
+    unitPrice, order_total = determine_billable_price(basket, product_lines[0], order, payment_processor)
 
     data = {
         "datosBoleta": {
@@ -281,7 +309,7 @@ def make_boleta_electronica(basket, order, auth, configuration=default_config):
             },
         },
         "recaudaciones": [{
-            "monto": order.total_incl_tax,
+            "monto": order_total,
             "tipoPago": "Tarjeta de Crédito",  # Efectivo | Debito | Tarjeta de Crédito
             "voucher": basket.order_number,  # numero para gestion interna de transacciones
         }],
@@ -339,6 +367,9 @@ def make_boleta_electronica(basket, order, auth, configuration=default_config):
     boleta.emission_date = emission_date
     boleta.amount = int(boleta_details["recaudaciones"][0].get("monto", 0))
     boleta.save()
+
+    # Save conversion rate if needed
+    associate_boleta_to_conversion(boleta, payment_processor)
 
     return {
         'id': voucher_id,

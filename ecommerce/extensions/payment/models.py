@@ -305,8 +305,9 @@ class BoletaElectronica(models.Model):
     emission_date = models.DateTimeField(null=True)
     amount = models.IntegerField(default=0)
 
+
     def __str__(self):
-        return "Boleta {}".format(self.voucher_id)
+        return "Boleta {} con folio {} por ${}. {}".format(self.voucher_id, self.folio, self.amount, self.emission_date)
 
 class UserBillingInfo(models.Model):
 
@@ -318,25 +319,62 @@ class UserBillingInfo(models.Model):
         (PASSPORT, 'Pasaporte'),
         (OTRO, 'Otros'),
     ]
+    basket = models.ForeignKey('basket.Basket', verbose_name=_('Basket'),
+                            null=True, blank=True, on_delete=models.CASCADE)
+
     billing_country_iso2 = models.CharField(max_length=2)
     billing_city = models.CharField(max_length=50)
     billing_district = models.CharField(max_length=50)
     billing_address = models.CharField(max_length=255)
+
+    boleta = models.ForeignKey(to=BoletaElectronica, on_delete=models.CASCADE,
+                            null=True, blank=True, default=None)
+
+    first_name = models.CharField(max_length=12)
     id_number = models.CharField(default="66666666-6", max_length=14)
     id_option = models.CharField(choices=ID_TYPES,max_length=1,default=RUT)
     id_other = models.CharField(blank=True,max_length=100)
     # We can get the user by looking at the owner
-    basket = models.ForeignKey('basket.Basket', verbose_name=_('Basket'),
-                            null=True, blank=True, on_delete=models.CASCADE)
-    first_name = models.CharField(max_length=12)
     last_name_1 = models.CharField(max_length=12)
     last_name_2 = models.CharField(max_length=12,blank=True)
-    boleta = models.ForeignKey(to=BoletaElectronica, on_delete=models.CASCADE,
-                            null=True, blank=True, default=None)
+    payment_processor = models.CharField(max_length=10, default="webpay")
 
     def __str__(self):
-        return "Información de boleta de {}".format(self.first_name)
+        return "Información de boleta de {} con {}".format(self.first_name, self.payment_processor)
 
+class PaypalUSDConversion(models.Model):
+    """
+    Rate to convert a products CLP price to USD
+    in order to pay with Paypal
+
+    Paypal will use the most recent rate using the date
+    """
+    class Meta:
+        ordering = ["creation_date"]
+
+    creation_date = models.DateTimeField(default=timezone.now, editable=False)
+    clp_to_usd = models.IntegerField(default=750, help_text="Rate used at payment to give the correct price to paypal")
+    basket = models.ManyToManyField('basket.Basket', verbose_name=_('Basket'), blank=True)
+
+    def __str__(self):
+        return "Date: {}. 1 CLP = {} USD".format(self.creation_date, self.clp_to_usd)
+
+class BoletaUSDConversion(models.Model):
+    """
+    Rate to convert USD to CLP at boleta emissions
+
+    The most recent rate using the date will be used
+    """
+    class Meta:
+        ordering = ["creation_date"]
+
+    creation_date = models.DateTimeField(default=timezone.now, editable=False)
+    clp_to_usd = models.IntegerField(default=750, help_text="Rate used at boleta emission to get the correct CLP from the USDs")
+    boleta = models.ManyToManyField(BoletaElectronica, blank=True)
+
+    def __str__(self):
+        return "Date: {}. 1 CLP = {} USD".format(self.creation_date, self.clp_to_usd)
+    
 class BoletaErrorMessage(models.Model):
     """
     The messages are processed by other clases and then disposed off.

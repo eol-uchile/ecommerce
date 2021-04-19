@@ -27,9 +27,9 @@ class Command(BaseCommand):
             cache.set("boleta_emissions_auth_cache", auth, auth["expires_in"]//2)
         return auth
 
-
     def add_arguments(self, parser):
         parser.add_argument("--dry-run", help="Run without applying changes", action='store_true')
+        parser.add_argument("--processor", help="Payment processor name used (webpay or paypal)")
 
     def handle(self, *args, **options):
 
@@ -42,6 +42,10 @@ class Command(BaseCommand):
         if options["dry_run"]:
             dry_run = True
 
+        payment_processor = options["processor"]
+        if payment_processor is None:
+            payment_processor = "webpay"
+
         completed = 0
         failed = 0
 
@@ -51,7 +55,7 @@ class Command(BaseCommand):
         for order in orders:
             try:
                 # We re-check if there is a boleta associated to the basket via the userbillinginfo
-                used_info = UserBillingInfo.objects.filter(basket=order.basket).exclude(boleta=None)
+                used_info = UserBillingInfo.objects.filter(basket=order.basket, payment_processor=payment_processor).exclude(boleta=None)
                 if used_info.count() > 0:
                     logger.warning("Order {} is complete, but without the proper association with it's boleta {}".format(order.number, used_info.first().boleta))
                     continue

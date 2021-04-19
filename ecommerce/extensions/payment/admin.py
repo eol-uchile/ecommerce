@@ -7,7 +7,7 @@ from oscar.apps.payment.admin import *  # noqa pylint: disable=wildcard-import,u
 from oscar.core.loading import get_model
 from solo.admin import SingletonModelAdmin
 
-from ecommerce.extensions.payment.models import SDNCheckFailure, BoletaElectronica, UserBillingInfo, BoletaErrorMessage
+from ecommerce.extensions.payment.models import SDNCheckFailure, BoletaElectronica, UserBillingInfo, BoletaErrorMessage, PaypalUSDConversion, BoletaUSDConversion
 
 PaymentProcessorResponse = get_model('payment', 'PaymentProcessorResponse')
 PaypalProcessorConfiguration = get_model('payment', 'PaypalProcessorConfiguration')
@@ -61,6 +61,18 @@ class UserBillingAdmin(admin.ModelAdmin):
 
 @admin.register(BoletaErrorMessage)
 class BoletaErrorMessageAdmin(admin.ModelAdmin):
+    pass
+
+
+@admin.register(PaypalUSDConversion)
+class PaypalUSDConversionAdmin(admin.ModelAdmin):
+    raw_id_fields = ('basket',)
+    pass
+
+
+@admin.register(BoletaUSDConversion)
+class BoletaUSDConversionAdmin(admin.ModelAdmin):
+    raw_id_fields = ('boleta',)
     pass
 
 admin.site.register(PaypalProcessorConfiguration, SingletonModelAdmin)

@@ -3,6 +3,8 @@
 import abc
 import logging
 
+from django.conf import settings
+from django.core.mail import send_mail
 from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse
 from django.utils.decorators import method_decorator
@@ -87,3 +89,18 @@ class BasePaymentSubmitView(View):
             data['error'] = _('There was a problem retrieving your basket. Refresh the page to try again.')
 
         return JsonResponse(data, status=400)
+
+class EolAlertMixin:
+    def send_simple_alert_to_eol(self, site, message, order_number=None, payed=False, user=None, processor="webpay"):
+        if hasattr(settings, 'BOLETA_CONFIG') and (settings.BOLETA_CONFIG.get('enabled',False)):
+            payed_message = "Se realizó el pago exitósamente. " if payed else "No se efectuó pago. "
+            user_message = "" if user is None else "Usuario de correo {} y nombre {}. ".format(user.email, user.full_name)
+            order_message = "" if order_number is None else "Número de orden {}. ".format(order_number)
+            error_mail_footer = "\nOriginado en {} con partner {}".format(site.domain,site.siteconfiguration.lms_url_root)
+            send_mail(
+                '{} - Error inesperado'.format(processor),
+                "Lugar: vista de notificacion de webpay.\nDescripción: {}{}{}La orden no fue generada con éxito.{}\n\n{}".format(message,user_message,payed_message, order_message, error_mail_footer),
+                settings.BOLETA_CONFIG.get("from_email",None),
+                [settings.BOLETA_CONFIG.get("team_email","")],
+                fail_silently=True
+            )

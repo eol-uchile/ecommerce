@@ -20,6 +20,7 @@ from ecommerce.extensions.basket.utils import basket_add_organization_attribute
 from ecommerce.extensions.checkout.mixins import EdxOrderPlacementMixin
 from ecommerce.extensions.checkout.utils import get_receipt_page_url
 from ecommerce.extensions.payment.processors.paypal import Paypal
+from ecommerce.extensions.payment.views import EolAlertMixin
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +34,7 @@ OrderTotalCalculator = get_class('checkout.calculators', 'OrderTotalCalculator')
 PaymentProcessorResponse = get_model('payment', 'PaymentProcessorResponse')
 
 
-class PaypalPaymentExecutionView(EdxOrderPlacementMixin, View):
+class PaypalPaymentExecutionView(EolAlertMixin, EdxOrderPlacementMixin, View):
     """Execute an approved PayPal payment and place an order for paid products as appropriate."""
 
     @property
@@ -61,25 +62,25 @@ class PaypalPaymentExecutionView(EdxOrderPlacementMixin, View):
 
         """
         try:
-            basket = PaymentProcessorResponse.objects.get(
+            payment_responses = PaymentProcessorResponse.objects.filter(
                 processor_name=self.payment_processor.NAME,
                 transaction_id=payment_id
-            ).basket
+            )
+            if payment_responses.count() > 1:
+                logger.warning("Duplicate payment ID [%s] received from Paypal.", payment_id)
+            basket = payment_responses.first().basket
             basket.strategy = strategy.Default()
 
             Applicator().apply(basket, basket.owner, self.request)
 
             basket_add_organization_attribute(basket, self.request.GET)
             return basket
-        except MultipleObjectsReturned:
-            logger.warning(u"Duplicate payment ID [%s] received from PayPal.", payment_id)
-            return None
         except Exception:  # pylint: disable=broad-except
             logger.exception(u"Unexpected error during basket retrieval while executing PayPal payment.")
             return None
 
     def get(self, request):
-        """Handle an incoming user returned to us by PayPal after approving payment."""
+        """Handle an incoming user returned to us by PayPal after APPROVING PAYMENT."""
         payment_id = request.GET.get('paymentId')
         payer_id = request.GET.get('PayerID')
         logger.info(u"Payment [%s] approved by payer [%s]", payment_id, payer_id)
@@ -105,19 +106,26 @@ class PaypalPaymentExecutionView(EdxOrderPlacementMixin, View):
                     return redirect(self.payment_processor.error_url)
         except:  # pylint: disable=bare-except
             logger.exception('Attempts to handle payment for basket [%d] failed.', basket.id)
-            return redirect(receipt_url)
+            self.send_simple_alert_to_eol(basket.site,"Error inesperado al procesar el pago en ecommerce. ", order_number=basket.order_number, payed=True, user=basket.owner, processor="Paypal")
+            raise Http404("Hubo un error al cerrar la orden en ecommerce. Guarde su número de orden {}".format(basket.order_number))
+            #return redirect(receipt_url)
 
         try:
             order = self.create_order(request, basket)
         except Exception:  # pylint: disable=broad-except
             # any errors here will be logged in the create_order method. If we wanted any
             # Paypal specific logging for this error, we would do that here.
-            return redirect(receipt_url)
+            logger.exception(self.order_placement_failure_msg, paypal_response, basket.id)
+            self.send_simple_alert_to_eol(basket.site,"Error inesperado al procesar el pago en ecommerce. ", order_number=basket.order_number, user=basket.owner, payed=True, processor="Paypal")
+            raise Http404("Hubo un error al cerrar la orden en ecommerce. Guarde su número de orden {}".format(basket.order_number))
+            #return redirect(receipt_url)
 
         try:
             self.handle_post_order(order)
         except Exception:  # pylint: disable=broad-except
             self.log_order_placement_exception(basket.order_number, basket.id)
+            self.send_simple_alert_to_eol(basket.site,"Error inesperado al procesar el pago en ecommerce. ", order_number=basket.order_number, user=basket.owner, payed=True, processor="Paypal")
+            raise Http404("Hubo un error al cerrar la orden en ecommerce. Guarde su número de orden {}".format(basket.order_number))
 
         return redirect(receipt_url)
 
