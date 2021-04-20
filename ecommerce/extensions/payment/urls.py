@@ -19,6 +19,7 @@ CYBERSOURCE_URLS = [
 PAYPAL_URLS = [
     url(r'^execute/$', paypal.PaypalPaymentExecutionView.as_view(), name='execute'),
     url(r'^profiles/$', paypal.PaypalProfileAdminView.as_view(), name='profiles'),
+    url(r'^failure/$', paypal.PaypalErrorView.as_view(), name='failure'),
 ]
 
 SDN_URLS = [

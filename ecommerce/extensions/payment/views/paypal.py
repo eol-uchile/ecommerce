@@ -8,14 +8,16 @@ from io import StringIO
 from django.core.exceptions import MultipleObjectsReturned
 from django.core.management import call_command
 from django.db import transaction
-from django.http import Http404, HttpResponse, HttpResponseBadRequest
-from django.shortcuts import redirect
+from django.http import Http404, HttpResponse, HttpResponseBadRequest, HttpResponseRedirect
+from django.shortcuts import redirect, render
 from django.utils.decorators import method_decorator
+from django.urls import reverse
 from django.views.generic import View
 from oscar.apps.partner import strategy
 from oscar.apps.payment.exceptions import PaymentError
 from oscar.core.loading import get_class, get_model
 
+from ecommerce.core.url_utils import get_lms_url, get_lms_dashboard_url, get_lms_explore_courses_url
 from ecommerce.extensions.basket.utils import basket_add_organization_attribute
 from ecommerce.extensions.checkout.mixins import EdxOrderPlacementMixin
 from ecommerce.extensions.checkout.utils import get_receipt_page_url
@@ -107,7 +109,7 @@ class PaypalPaymentExecutionView(EolAlertMixin, EdxOrderPlacementMixin, View):
         except:  # pylint: disable=bare-except
             logger.exception('Attempts to handle payment for basket [%d] failed.', basket.id)
             self.send_simple_alert_to_eol(basket.site,"Error inesperado al procesar el pago en ecommerce. ", order_number=basket.order_number, payed=True, user=basket.owner, processor="Paypal")
-            raise Http404("Hubo un error al cerrar la orden en ecommerce. Guarde su número de orden {}".format(basket.order_number))
+            return HttpResponseRedirect("{}?order={}".format(reverse('paypal:failure'), basket.order_number))
             #return redirect(receipt_url)
 
         try:
@@ -182,3 +184,20 @@ class PaypalProfileAdminView(View):
         logger.removeHandler(log_handler)
 
         return HttpResponse(output, content_type='text/plain', status=200 if success else 500)
+
+
+class PaypalErrorView(View):
+    """
+    Temporal error redirect
+    """
+    def get(self, request):
+        order = request.GET.get("order",'')
+        # Error context
+        context = {
+            "payment_support_email": request.site.siteconfiguration.payment_support_email,
+            "order_dashboard_url": get_lms_dashboard_url(),
+            "explore_courses_url": get_lms_explore_courses_url(),
+            "order_number": order,
+        }
+
+        return render(request, "edx/checkout/paypal_error.html",context)

@@ -24,6 +24,8 @@ Changelog
 - changed ReceiptResponseView on ecommerce/extensions/checkout/views to add boleta to template context
 - added template, javascript and emails
 - added commands to extensions/payment
+- added mixins to extensions/payment/processors and extensions/payment/views
+- modified paypal on extensions/payment to convert from the defaul currency to USD. Also added logic to connect to boleta.
 
 For more details check the .github folder for Installing and on developper notes.
 
