@@ -55,7 +55,7 @@ class Command(BaseCommand):
         for order in orders:
             try:
                 # We re-check if there is a boleta associated to the basket via the userbillinginfo
-                used_info = UserBillingInfo.objects.filter(basket=order.basket, payment_processor=payment_processor).exclude(boleta=None)
+                used_info = UserBillingInfo.objects.filter(basket=order.basket).exclude(boleta=None)
                 if used_info.count() > 0:
                     logger.warning("Order {} is complete, but without the proper association with it's boleta {}".format(order.number, used_info.first().boleta))
                     continue
@@ -64,7 +64,7 @@ class Command(BaseCommand):
                 # Each basket is unique and should only have 
                 # one user billing info object. 
                 # (avoid DoesNotExist Exception)
-                info = UserBillingInfo.objects.filter(basket=order.basket, boleta=None)
+                info = UserBillingInfo.objects.filter(basket=order.basket, boleta=None, payment_processor=payment_processor)
                 info_count = info.count()
                 if info_count > 1:
                     logger.warning("UserBillingInfo counts {} for order {}, using first".format(info_count, order.number))
