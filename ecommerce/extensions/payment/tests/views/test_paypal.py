@@ -67,8 +67,8 @@ class PaypalPaymentExecutionViewTests(BoletaMixin, PaypalMixin, PaymentEventsMix
 
         # Dummy request from which an HTTP Host header can be extracted during
         # construction of absolute URLs
-        self.request = RequestFactory().post('/')
-        self.request.POST = self.BILLING_INFO_FORM
+        #self.request = RequestFactory().post('/')
+        self.request.data = self.BILLING_INFO_FORM
 
         conversion = PaypalUSDConversion(clp_to_usd=750)
         conversion.save()

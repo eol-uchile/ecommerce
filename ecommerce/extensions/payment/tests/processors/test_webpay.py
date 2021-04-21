@@ -26,7 +26,7 @@ class WebpayTests(TransbankMixin, BoletaMixin, PaymentProcessorTestCaseMixin, Te
         self.mock_transbank_initial_token_response()
 
         # Append data instead of creating new request
-        self.request.POST = self.BILLING_INFO_FORM
+        self.request.data = self.BILLING_INFO_FORM
 
         response = self.processor.get_transaction_parameters(
             self.basket, request=self.request)
@@ -47,8 +47,8 @@ class WebpayTests(TransbankMixin, BoletaMixin, PaymentProcessorTestCaseMixin, Te
         self.mock_transbank_initial_token_response()
 
         # Append data instead of creating new request
-        self.request.POST = self.BILLING_INFO_FORM.copy()
-        self.request.POST["id_number"] = "13"
+        self.request.data = self.BILLING_INFO_FORM.copy()
+        self.request.data["id_number"] = "13"
 
         self.assertRaises(Exception, self.processor.get_transaction_parameters,
                           self.basket, self.request)
@@ -58,7 +58,7 @@ class WebpayTests(TransbankMixin, BoletaMixin, PaymentProcessorTestCaseMixin, Te
     def test_get_transaction_parameters_webpay_down(self, mock_send_mail):
         mock_send_mail.return_value = True
         self.mock_transbank_initial_token_response_error(403)
-        self.request.POST = self.BILLING_INFO_FORM
+        self.request.data = self.BILLING_INFO_FORM
 
         with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
             self.assertRaises(GatewayError, self.processor.get_transaction_parameters,
@@ -72,7 +72,7 @@ class WebpayTests(TransbankMixin, BoletaMixin, PaymentProcessorTestCaseMixin, Te
         self.mock_transbank_initial_token_response(
             {"token": None, "url": "http://webpay.cl"})
 
-        self.request.POST = self.BILLING_INFO_FORM
+        self.request.data = self.BILLING_INFO_FORM
 
         self.assertRaises(TransactionDeclined, self.processor.get_transaction_parameters,
                           self.basket, self.request)

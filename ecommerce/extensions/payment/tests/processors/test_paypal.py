@@ -69,12 +69,12 @@ class PaypalTests(BoletaMixin, PaypalMixin, PaymentProcessorTestCaseMixin, TestC
 
         # Dummy request from which an HTTP Host header can be extracted during
         # construction of absolute URLs
-        self.request = RequestFactory().post('/')
+        #self.request = RequestFactory().post('/')
         self.processor_response_log = (
             u"Failed to execute PayPal payment on attempt [{attempt_count}]. "
             u"PayPal's response was recorded in entry [{entry_id}]."
         )
-        self.request.POST = self.BILLING_INFO_FORM
+        self.request.data = self.BILLING_INFO_FORM
         conversion = PaypalUSDConversion(clp_to_usd=750)
         conversion.save()
 
@@ -171,8 +171,8 @@ class PaypalTests(BoletaMixin, PaypalMixin, PaymentProcessorTestCaseMixin, TestC
         self._assert_transaction_parameters()
 
         # Append data instead of creating new request
-        self.request.POST = self.BILLING_INFO_FORM.copy()
-        self.request.POST["id_number"] = "13"
+        self.request.data = self.BILLING_INFO_FORM.copy()
+        self.request.data["id_number"] = "13"
 
         self.assertRaises(Exception, self.processor.get_transaction_parameters,
                           self.basket, self.request)

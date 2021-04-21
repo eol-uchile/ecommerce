@@ -200,8 +200,8 @@ class EolBillingMixin:
 
     def verifyIdNumber(self, request):
         # Before anything verify fields
-        id_type = request.POST.get("id_option")
-        id_number = request.POST.get("id_number")
+        id_type = request.data.get("id_option")
+        id_number = request.data.get("id_number")
         if id_type == "0":
             # Clean and add dash
             id_number = [c for c in id_number if c in self.VALID_CHARS]
@@ -240,17 +240,17 @@ class EolBillingMixin:
         if previous_user_info_count == 0:
             # After all is ready register the billing info
             billing_info = UserBillingInfo(
-                billing_district=request.POST.get("billing_district"),
-                billing_city=request.POST.get("billing_city"),
-                billing_address=request.POST.get("billing_address"),
-                billing_country_iso2=request.POST.get("billing_country"),
+                billing_district=request.data.get("billing_district"),
+                billing_city=request.data.get("billing_city"),
+                billing_address=request.data.get("billing_address"),
+                billing_country_iso2=request.data.get("billing_country"),
                 id_number=id_number,
-                id_option=request.POST.get("id_option"),
-                id_other=request.POST.get("id_other"),
+                id_option=request.data.get("id_option"),
+                id_other=request.data.get("id_other"),
                 basket=basket,
-                first_name=request.POST.get("first_name"),
-                last_name_1=request.POST.get("last_name_1"),
-                last_name_2=request.POST.get("last_name_2"),
+                first_name=request.data.get("first_name"),
+                last_name_1=request.data.get("last_name_1"),
+                last_name_2=request.data.get("last_name_2"),
                 payment_processor=processor)
             billing_info.save()
 
@@ -264,17 +264,17 @@ class EolBillingMixin:
         previous = previous_user_info.first()
 
         previous_payment_processor = previous.payment_processor
-        previous.billing_district = request.POST.get("billing_district")
-        previous.billing_city = request.POST.get("billing_city")
-        previous.billing_address = request.POST.get("billing_address")
-        previous.billing_country_iso2 = request.POST.get("billing_country")
+        previous.billing_district = request.data.get("billing_district")
+        previous.billing_city = request.data.get("billing_city")
+        previous.billing_address = request.data.get("billing_address")
+        previous.billing_country_iso2 = request.data.get("billing_country")
         previous.id_number = id_number
-        previous.id_option = request.POST.get("id_option")
-        previous.id_other = request.POST.get("id_other")
+        previous.id_option = request.data.get("id_option")
+        previous.id_other = request.data.get("id_other")
         previous.basket = basket
-        previous.first_name = request.POST.get("first_name")
-        previous.last_name_1 = request.POST.get("last_name_1")
-        previous.last_name_2 = request.POST.get("last_name_2")
+        previous.first_name = request.data.get("first_name")
+        previous.last_name_1 = request.data.get("last_name_1")
+        previous.last_name_2 = request.data.get("last_name_2")
         previous.payment_processor = processor
         previous.save()
 

@@ -661,14 +661,12 @@ define([
         var $btn = $form.find("button"),
           deferred = new $.Deferred(),
           promise = deferred.promise(),
-          paymentProcessor = $btn.data("processor-name"),
           discountJwt = $btn
             .closest("#paymentForm")
             .find('input[name="discount_jwt"]'),
           data = Object.assign(
             {
               basket_id: basketId,
-              payment_processor: paymentProcessor,
             },
             billing_data
           );
