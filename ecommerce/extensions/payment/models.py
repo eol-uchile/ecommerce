@@ -350,7 +350,7 @@ class PaypalUSDConversion(models.Model):
     Paypal will use the most recent rate using the date
     """
     class Meta:
-        ordering = ["creation_date"]
+        ordering = ["-creation_date"]
 
     creation_date = models.DateTimeField(default=timezone.now, editable=False)
     clp_to_usd = models.IntegerField(default=750, help_text="Rate used at payment to give the correct price to paypal")
@@ -366,7 +366,7 @@ class BoletaUSDConversion(models.Model):
     The most recent rate using the date will be used
     """
     class Meta:
-        ordering = ["creation_date"]
+        ordering = ["-creation_date"]
 
     creation_date = models.DateTimeField(default=timezone.now, editable=False)
     clp_to_usd = models.IntegerField(default=750, help_text="Rate used at boleta emission to get the correct CLP from the USDs")

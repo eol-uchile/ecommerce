@@ -70,6 +70,7 @@ class PaypalPaymentExecutionView(EolAlertMixin, EdxOrderPlacementMixin, View):
             )
             if payment_responses.count() > 1:
                 logger.warning("Duplicate payment ID [%s] received from Paypal.", payment_id)
+                
             basket = payment_responses.first().basket
             basket.strategy = strategy.Default()
 
@@ -125,7 +126,7 @@ class PaypalPaymentExecutionView(EolAlertMixin, EdxOrderPlacementMixin, View):
         try:
             self.handle_post_order(order)
         except Exception:  # pylint: disable=broad-except
-            self.log_order_placement_exception(basket.order_number, basket.id)
+            #self.log_order_placement_exception(basket.order_number, basket.id)
             self.send_simple_alert_to_eol(basket.site,"Error inesperado al procesar el pago en ecommerce. ", order_number=basket.order_number, user=basket.owner, payed=True, processor="Paypal")
             raise Http404("Hubo un error al cerrar la orden en ecommerce. Guarde su número de orden {}".format(basket.order_number))
 

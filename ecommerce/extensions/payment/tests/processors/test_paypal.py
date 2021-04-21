@@ -10,6 +10,7 @@ import ddt
 import mock
 import paypalrestsdk
 import responses
+from datetime import timedelta
 from django.conf import settings
 from django.test import RequestFactory
 from django.urls import reverse
@@ -22,9 +23,9 @@ from testfixtures import LogCapture
 
 from ecommerce.core.tests import toggle_switch
 from ecommerce.extensions.checkout.utils import get_receipt_page_url
-from ecommerce.extensions.payment.models import PaypalWebProfile, PaypalUSDConversion
+from ecommerce.extensions.payment.models import PaypalWebProfile, PaypalUSDConversion, UserBillingInfo
 from ecommerce.extensions.payment.processors.paypal import Paypal
-from ecommerce.extensions.payment.tests.mixins import PaypalMixin, TransbankMixin, BoletaMixin
+from ecommerce.extensions.payment.tests.mixins import PaypalMixin, BoletaMixin
 from ecommerce.extensions.payment.tests.processors.mixins import PaymentProcessorTestCaseMixin
 from ecommerce.tests.testcases import TestCase
 
@@ -36,7 +37,7 @@ SourceType = get_model('payment', 'SourceType')
 
 
 @ddt.ddt
-class PaypalTests(TransbankMixin, BoletaMixin, PaypalMixin, PaymentProcessorTestCaseMixin, TestCase):
+class PaypalTests(BoletaMixin, PaypalMixin, PaymentProcessorTestCaseMixin, TestCase):
     """Tests for the PayPal payment processor."""
     ERROR = {'debug_id': 'foo'}
 
@@ -131,6 +132,24 @@ class PaypalTests(TransbankMixin, BoletaMixin, PaypalMixin, PaymentProcessorTest
                     )
                 )
 
+    @ddt.unpack
+    @ddt.data(
+        [10.00,7500,750],
+        [10.27,7500,730],
+        [9.26,7500,810],
+        [13.33,10000,750],
+        [13.70,10000,730],
+        [12.35,10000,810],
+        [0.67,500,750],
+        [0.68,500,730],
+    )
+    def test_parse_CLP_to_USD(self, expected, given, rate):
+        # We also tests that the original is overriden
+        current_date = PaypalUSDConversion.objects.first().creation_date
+        conversion = PaypalUSDConversion(creation_date=current_date + timedelta(days=1),clp_to_usd=rate)
+        conversion.save()
+        self.assertEqual(expected, float(self.processor.parseCLPtoUSD(given)))
+
     @responses.activate
     def test_get_transaction_parameters(self):
         """Verify the processor returns the appropriate parameters required to complete a transaction."""
@@ -157,6 +176,31 @@ class PaypalTests(TransbankMixin, BoletaMixin, PaypalMixin, PaymentProcessorTest
 
         self.assertRaises(Exception, self.processor.get_transaction_parameters,
                           self.basket, self.request)
+    @responses.activate
+    def test_get_transaction_parameters_change_billing_info_processor(self):
+        # Create old version with another payment method
+        # This scenario hopefully never happens
+        UserBillingInfo.objects.create(billing_district="district",
+            billing_city="city",
+            billing_address="address",
+            billing_country_iso2='CL',
+            id_number="1-9",
+            id_option='0',
+            id_other="",
+            first_name="name name",
+            last_name_1="last name",
+            basket=self.basket,
+            payment_processor="webpay")
+
+        self.mock_oauth2_response()
+        response = self.mock_payment_creation_response(self.basket)
+
+        self._assert_transaction_parameters()
+        self.assert_processor_response_recorded(self.processor.NAME, self.PAYMENT_ID, response, basket=self.basket)
+
+        last_request_body = json.loads(responses.calls[-1].request.body)
+        expected = urljoin(self.site.siteconfiguration.build_ecommerce_url(), reverse('paypal:execute'))
+        self.assertEqual(last_request_body['redirect_urls']['return_url'], expected)
 
     @responses.activate
     def test_get_courseid_title(self):
