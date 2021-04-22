@@ -235,25 +235,49 @@ class EolBillingMixin:
         # Overwrite userInfo:
         # sometimes the requests might duplicate
         # and a previous info might exists
-        user_info, _ = UserBillingInfo.objects.update_or_create(
-            billing_district=request.data.get("billing_district"),
-            billing_city=request.data.get("billing_city"),
-            billing_address=request.data.get("billing_address"),
-            billing_country_iso2=request.data.get("billing_country"),
-            id_number=id_number,
-            id_option=request.data.get("id_option"),
-            id_other=request.data.get("id_other"),
-            basket=basket,
-            first_name=request.data.get("first_name"),
-            last_name_1=request.data.get("last_name_1"),
-            last_name_2=request.data.get("last_name_2"),
-            payment_processor=processor)
+        previous_processor = "webpay"
+        try:
+            user_info = UserBillingInfo.objects.get(basket=basket)
+            previous_processor = user_info.payment_processor
+            user_info.billing_district = request.data.get("billing_district")
+            user_info.billing_city = request.data.get("billing_city")
+            user_info.billing_address = request.data.get("billing_address")
+            user_info.billing_country_iso2 = request.data.get("billing_country")
+            user_info.id_number = id_number
+            user_info.id_option = request.data.get("id_option")
+            user_info.id_other = request.data.get("id_other")
+            user_info.basket = basket
+            user_info.first_name = request.data.get("first_name")
+            user_info.last_name_1 = request.data.get("last_name_1")
+            user_info.last_name_2 = request.data.get("last_name_2")
+            user_info.payment_processor = processor
+            user_info.save()
 
-        # Associate to paypal
-        if processor == 'paypal':
+        except UserBillingInfo.DoesNotExist:
+            UserBillingInfo.objects.create(
+                billing_district=request.data.get("billing_district"),
+                billing_city=request.data.get("billing_city"),
+                billing_address=request.data.get("billing_address"),
+                billing_country_iso2=request.data.get("billing_country"),
+                id_number=id_number,
+                id_option=request.data.get("id_option"),
+                id_other=request.data.get("id_other"),
+                basket=basket,
+                first_name=request.data.get("first_name"),
+                last_name_1=request.data.get("last_name_1"),
+                last_name_2=request.data.get("last_name_2"),
+                payment_processor=processor
+            )
+
+        # Associate to paypal (default paypal case)
+        if previous_processor == "webpay" and processor == "paypal":
             self.associate_paypal_conversion_rate(basket)
-        else:
+        # Revert paypal case
+        elif previous_processor == "paypal" and processor == "webpay":
             self.remove_from_paypal_conversion_rate(basket)
+        # Nothing else
+        # paypal == paypal
+        # webpay == webpay
 
     def send_support_email(self, subject, message):
         if hasattr(settings, 'BOLETA_CONFIG') and (settings.BOLETA_CONFIG.get('enabled', False)):

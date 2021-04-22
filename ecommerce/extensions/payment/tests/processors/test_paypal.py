@@ -180,17 +180,7 @@ class PaypalTests(BoletaMixin, PaypalMixin, PaymentProcessorTestCaseMixin, TestC
     def test_get_transaction_parameters_change_billing_info_processor(self):
         # Create old version with another payment method
         # This scenario hopefully never happens
-        UserBillingInfo.objects.create(billing_district="district",
-            billing_city="city",
-            billing_address="address",
-            billing_country_iso2='CL',
-            id_number="1-9",
-            id_option='0',
-            id_other="",
-            first_name="name name",
-            last_name_1="last name",
-            basket=self.basket,
-            payment_processor="webpay")
+        self.make_billing_info_helper("0","CL",self.basket)
 
         self.mock_oauth2_response()
         response = self.mock_payment_creation_response(self.basket)

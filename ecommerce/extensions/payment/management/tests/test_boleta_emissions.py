@@ -206,25 +206,6 @@ class TestBoletaEmissionsCommand(BoletaMixin, TestCase):
             self.assertEqual(1, self.count_boletas())
 
     @responses.activate
-    def test_emit_one_boleta_on_userbillingifo_duplicates(self):
-
-        self.make_billing_info_helper('0', 'CL',self.basket)
-        self.make_billing_info_helper('0', 'CL',self.basket)
-        self.order.status = ORDER.COMPLETE
-        self.order.save()
-
-        self.mock_boleta_auth()
-        self.mock_boleta_creation()
-        self.mock_boleta_details(self.order.total_incl_tax)
-
-        with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
-            self.call_command_action()
-            self.assertEqual(1, self.count_boletas())
-            # Idempotency
-            self.call_command_action()
-            self.assertEqual(1, self.count_boletas())
-
-    @responses.activate
     def test_dry_run_emissions_on_complete_order(self):
         self.make_billing_info_helper('0', 'CL',self.basket)
         self.order.status = ORDER.COMPLETE
