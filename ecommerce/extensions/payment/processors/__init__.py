@@ -235,57 +235,25 @@ class EolBillingMixin:
         # Overwrite userInfo:
         # sometimes the requests might duplicate
         # and a previous info might exists
-        previous_user_info = UserBillingInfo.objects.filter(basket=basket)
-        previous_user_info_count = previous_user_info.count()
-        if previous_user_info_count == 0:
-            # After all is ready register the billing info
-            billing_info = UserBillingInfo(
-                billing_district=request.data.get("billing_district"),
-                billing_city=request.data.get("billing_city"),
-                billing_address=request.data.get("billing_address"),
-                billing_country_iso2=request.data.get("billing_country"),
-                id_number=id_number,
-                id_option=request.data.get("id_option"),
-                id_other=request.data.get("id_other"),
-                basket=basket,
-                first_name=request.data.get("first_name"),
-                last_name_1=request.data.get("last_name_1"),
-                last_name_2=request.data.get("last_name_2"),
-                payment_processor=processor)
-            billing_info.save()
+        user_info, _ = UserBillingInfo.objects.update_or_create(
+            billing_district=request.data.get("billing_district"),
+            billing_city=request.data.get("billing_city"),
+            billing_address=request.data.get("billing_address"),
+            billing_country_iso2=request.data.get("billing_country"),
+            id_number=id_number,
+            id_option=request.data.get("id_option"),
+            id_other=request.data.get("id_other"),
+            basket=basket,
+            first_name=request.data.get("first_name"),
+            last_name_1=request.data.get("last_name_1"),
+            last_name_2=request.data.get("last_name_2"),
+            payment_processor=processor)
 
-            # Associate to paypal
-            if processor == 'paypal':
-                self.associate_paypal_conversion_rate(basket)
-
-            return
-
-        # Always use first
-        previous = previous_user_info.first()
-
-        previous_payment_processor = previous.payment_processor
-        previous.billing_district = request.data.get("billing_district")
-        previous.billing_city = request.data.get("billing_city")
-        previous.billing_address = request.data.get("billing_address")
-        previous.billing_country_iso2 = request.data.get("billing_country")
-        previous.id_number = id_number
-        previous.id_option = request.data.get("id_option")
-        previous.id_other = request.data.get("id_other")
-        previous.basket = basket
-        previous.first_name = request.data.get("first_name")
-        previous.last_name_1 = request.data.get("last_name_1")
-        previous.last_name_2 = request.data.get("last_name_2")
-        previous.payment_processor = processor
-        previous.save()
-
-        # If the payment processor changed disassociate
-        if previous_payment_processor != "paypal" and processor == "paypal":
+        # Associate to paypal
+        if processor == 'paypal':
             self.associate_paypal_conversion_rate(basket)
-        # If we changed from paypal (somehow) remove from association list
-        elif previous_payment_processor ==  "paypal" and processor != "paypal":
+        else:
             self.remove_from_paypal_conversion_rate(basket)
-        # else previous_payment_processor was paypal and processor is paypal
-        # so nothing to do
 
     def send_support_email(self, subject, message):
         if hasattr(settings, 'BOLETA_CONFIG') and (settings.BOLETA_CONFIG.get('enabled', False)):

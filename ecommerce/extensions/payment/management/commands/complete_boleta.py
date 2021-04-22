@@ -15,7 +15,7 @@ class Command(BaseCommand):
   def add_arguments(self, parser):
     # Optional argument
     parser.add_argument("-l", "--list", nargs='+', help="List of boleta ids to complete")
-    parser.add_argument("--dry-run", help="Run without applying changes", action='store_true')    
+    parser.add_argument("--dry-run", help="Run without applying changes", action='store_true', default=False)
 
   def handle(self, *args, **options):
 

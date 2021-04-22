@@ -320,7 +320,7 @@ class UserBillingInfo(models.Model):
         (OTRO, 'Otros'),
     ]
     basket = models.ForeignKey('basket.Basket', verbose_name=_('Basket'),
-                            null=True, blank=True, on_delete=models.CASCADE)
+                            null=True, unique=True, on_delete=models.CASCADE)
 
     billing_country_iso2 = models.CharField(max_length=2)
     billing_city = models.CharField(max_length=50)
@@ -328,7 +328,7 @@ class UserBillingInfo(models.Model):
     billing_address = models.CharField(max_length=255)
 
     boleta = models.ForeignKey(to=BoletaElectronica, on_delete=models.CASCADE,
-                            null=True, blank=True, default=None)
+                            null=True, default=None)
 
     first_name = models.CharField(max_length=12)
     id_number = models.CharField(default="66666666-6", max_length=14)
@@ -340,7 +340,9 @@ class UserBillingInfo(models.Model):
     payment_processor = models.CharField(max_length=10, default="webpay")
 
     def __str__(self):
-        return "Información de boleta de {} con {}".format(self.first_name, self.payment_processor)
+        basket = "no especificada" if self.basket is None else self.basket
+        boleta = "sin emitir" if self.boleta is None else self.boleta
+        return "Información de boleta de {} con {}. Basket {}. Boleta {}".format(self.first_name, self.payment_processor, basket, boleta)
 
 class PaypalUSDConversion(models.Model):
     """
@@ -357,7 +359,7 @@ class PaypalUSDConversion(models.Model):
     basket = models.ManyToManyField('basket.Basket', verbose_name=_('Basket'), blank=True)
 
     def __str__(self):
-        return "Date: {}. 1 CLP = {} USD".format(self.creation_date, self.clp_to_usd)
+        return "Date: {}. 1 USD = {} CLP".format(self.creation_date, self.clp_to_usd)
 
 class BoletaUSDConversion(models.Model):
     """
@@ -373,7 +375,7 @@ class BoletaUSDConversion(models.Model):
     boleta = models.ManyToManyField(BoletaElectronica, blank=True)
 
     def __str__(self):
-        return "Date: {}. 1 CLP = {} USD".format(self.creation_date, self.clp_to_usd)
+        return "Date: {}. 1 USD = {} CLP".format(self.creation_date, self.clp_to_usd)
     
 class BoletaErrorMessage(models.Model):
     """

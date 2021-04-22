@@ -28,8 +28,8 @@ class Command(BaseCommand):
         return auth
 
     def add_arguments(self, parser):
-        parser.add_argument("--dry-run", help="Run without applying changes", action='store_true')
-        parser.add_argument("--processor", help="Payment processor name used (webpay or paypal)")
+        parser.add_argument("--dry-run", help="Run without applying changes", action='store_true', default=False)
+        parser.add_argument("--processor", help="Payment processor name used (webpay or paypal)", default="webpay")
 
     def handle(self, *args, **options):
 
@@ -38,19 +38,14 @@ class Command(BaseCommand):
             logger.error("BOLETA_CONFIG is not set or enabled, enable it on your settings to run this commmand")
             return
 
-        dry_run = False
-        if options["dry_run"]:
-            dry_run = True
-
+        dry_run = options["dry_run"]
         payment_processor = options["processor"]
-        if payment_processor is None:
-            payment_processor = "webpay"
 
         completed = 0
         failed = 0
 
         # Get payed orders
-        orders = Order.objects.filter(status="Complete", basket__boletaelectronica=None, total_incl_tax__gt=0)
+        orders = Order.objects.filter(status="Complete", basket__boletaelectronica=None, total_incl_tax__gt=0, basket__userbillinginfo__payment_processor=payment_processor)
 
         for order in orders:
             try:
