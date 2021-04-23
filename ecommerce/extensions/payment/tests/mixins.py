@@ -798,6 +798,7 @@ class PaypalMixin:
     def get_payment_creation_response_mock(self, basket, state=PAYMENT_CREATION_STATE, approval_url=APPROVAL_URL):
         total = str(basket.total_incl_tax)
         payment_creation_response = {
+            'application_context': {'landing_page': 'Billing'},
             'create_time': '2015-05-04T18:18:27Z',
             'id': self.PAYMENT_ID,
             'intent': 'sale',
@@ -891,6 +892,7 @@ class PaypalMixin:
             payer_info = self.PAYER_INFO
         total = str(basket.total_incl_tax)
         payment_execution_response = {
+            'application_context': {'landing_page': 'Billing'},
             'create_time': '2015-05-04T15:55:27Z',
             'id': self.PAYMENT_ID,
             'intent': 'sale',

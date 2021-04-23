@@ -157,6 +157,9 @@ class Paypal(EolBillingMixin, BasePaymentProcessor):
         PAYPAL_FREE_FORM_FIELD_MAX_SIZE = 127
         return_url = urljoin(get_ecommerce_url(), reverse('paypal:execute'))
         data = {
+            'application_context': {
+                'landing_page': 'Billing',
+            },
             'intent': 'sale',
             'redirect_urls': {
                 'return_url': return_url,
