@@ -71,6 +71,40 @@ class TestBoletaEmissionsCommand(BoletaMixin, TestCase):
             self.assertEqual(1, self.count_boletas())
 
     @responses.activate
+    def test_emissions_for_webpay_payment_processor(self):
+        self.make_billing_info_helper('0', 'CL',self.basket, "webpay")
+        self.order.status = ORDER.COMPLETE
+        self.order.save()
+
+        self.mock_boleta_auth()
+        self.mock_boleta_creation()
+        self.mock_boleta_details(self.order.total_incl_tax)
+
+        with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
+            self.call_command_action("--processor", "webpay")
+            self.assertEqual(1, self.count_boletas())
+            # Test idempotency
+            self.call_command_action()
+            self.assertEqual(1, self.count_boletas())
+
+    @responses.activate
+    def test_emissions_is_ignored_for_payment_processor(self):
+        self.make_billing_info_helper('0', 'CL',self.basket, "paypal")
+        self.order.status = ORDER.COMPLETE
+        self.order.save()
+
+        self.mock_boleta_auth()
+        self.mock_boleta_creation()
+        self.mock_boleta_details(self.order.total_incl_tax)
+
+        with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
+            self.call_command_action("--processor", "webpay")
+            self.assertEqual(0, self.count_boletas())
+            # Test idempotency
+            self.call_command_action()
+            self.assertEqual(0, self.count_boletas())
+            
+    @responses.activate
     def test_emissions_on_complete_order_without_details(self):
         self.make_billing_info_helper('0', 'CL',self.basket)
         self.order.status = ORDER.COMPLETE

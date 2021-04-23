@@ -1038,11 +1038,12 @@ class BoletaMixin:
         "first_name": "first_name last_name",
         "last_name_1": "last_name_1",
         "last_name_2": "",
+        "payment_processor": "webpay"
     }
 
     BOLETA_DATE = "2020-03-01T00:00:00"
 
-    def make_billing_info_helper(self, id_type, country_code, basket):
+    def make_billing_info_helper(self, id_type, country_code, basket, processor="webpay"):
         billing_info = UserBillingInfo(
             billing_district="district",
             billing_city="city",
@@ -1053,7 +1054,8 @@ class BoletaMixin:
             id_other="",
             first_name="name name",
             last_name_1="last name",
-            basket=basket
+            basket=basket,
+            payment_processor=processor,
         )
         billing_info.save()
         return billing_info

@@ -396,7 +396,7 @@ class Paypal(EolBillingMixin, BasePaymentProcessor):
         return None
 
     def issue_credit(self, order_number, basket, reference_number, amount, currency):
-        if waffle.switch_is_active('allow_refunds'):
+        if waffle.switch_is_active('paypal_allow_refunds'):
             try:
                 payment = paypalrestsdk.Payment.find(reference_number, api=self.paypal_api)
                 sale = self._get_payment_sale(payment)

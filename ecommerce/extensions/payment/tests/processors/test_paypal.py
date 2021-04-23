@@ -535,7 +535,7 @@ class PaypalTests(BoletaMixin, PaypalMixin, PaymentProcessorTestCaseMixin, TestC
         """
         Tests issuing credit/refund with Paypal processor
         """
-        toggle_switch('allow_refunds', True)
+        toggle_switch('paypal_allow_refunds', True)
         refund = self.create_refund(self.processor_name)
         order = refund.order
         basket = order.basket
@@ -564,7 +564,7 @@ class PaypalTests(BoletaMixin, PaypalMixin, PaymentProcessorTestCaseMixin, TestC
         """
         Tests issue credit/refund fails in case of erroneous response or exceptions
         """
-        toggle_switch('allow_refunds', True)
+        toggle_switch('paypal_allow_refunds', True)
         refund = self.create_refund(self.processor_name)
         order = refund.order
         basket = order.basket
