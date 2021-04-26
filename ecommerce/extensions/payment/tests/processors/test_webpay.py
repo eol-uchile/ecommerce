@@ -102,7 +102,7 @@ class WebpayTests(TransbankMixin, BoletaMixin, PaymentProcessorTestCaseMixin, Te
     def test_handle_processor_response_mismatch_error(self):
 
         transaction_details = self.get_transaction_details_helper(
-            'INITIALIZED', -100, self.basket.order_number, 0)
+            'INITIALIZED', -100, self.basket.order_number, None)
         transaction_details['token'] = "test"
 
         self.assertRaises(PartialAuthorizationError, self.processor.handle_processor_response,
@@ -110,7 +110,7 @@ class WebpayTests(TransbankMixin, BoletaMixin, PaymentProcessorTestCaseMixin, Te
 
     def test_handle_processor_response_webpay_error(self):
 
-        transaction_details = self.get_transaction_details_helper('INITIALIZED', float(
+        transaction_details = self.get_transaction_details_helper('INITIALIZEDs', float(
             self.basket.total_incl_tax), self.basket.order_number, None)
         transaction_details['token'] = "test"
 

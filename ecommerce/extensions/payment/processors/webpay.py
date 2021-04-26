@@ -141,7 +141,7 @@ class Webpay(EolBillingMixin, BasePaymentProcessor):
         """
 
         # PART 1: Verify And Commit
-        if response['status'] == 'INITIALIZED' and response['response_code'] == 0:
+        if response['status'] == 'INITIALIZED':
             if Decimal(response['amount']) == Decimal(basket.total_incl_tax):
                 # Check if order is already processed
                 if Order.objects.filter(number=basket.order_number).exists():
