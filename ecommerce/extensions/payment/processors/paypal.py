@@ -184,7 +184,7 @@ class Paypal(EolBillingMixin, BasePaymentProcessor):
                             # PayPal requires that item names be at most 127 characters long.
                             # for courseid we're using 'name' field along with title,
                             # concatenated field will be 'courseid|title'
-                            'name': middle_truncate(self.get_courseid_title(line), PAYPAL_FREE_FORM_FIELD_MAX_SIZE),
+                            'name': middle_truncate(line.product.title, PAYPAL_FREE_FORM_FIELD_MAX_SIZE),
                             # PayPal requires that the sum of all the item prices (where price = price * quantity)
                             # equals to the total amount set in amount['total'].
                             'price': str(self.parseCLPtoUSD(line.line_price_incl_tax_incl_discounts) / line.quantity),
