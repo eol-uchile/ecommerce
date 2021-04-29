@@ -340,9 +340,7 @@ class UserBillingInfo(models.Model):
     payment_processor = models.CharField(max_length=10, default="webpay")
 
     def __str__(self):
-        basket = "no especificada" if self.basket is None else self.basket
-        boleta = "sin emitir" if self.boleta is None else self.boleta
-        return "Información de boleta de {} con {}. Basket {}. Boleta {}".format(self.first_name, self.payment_processor, basket, boleta)
+        return "Información de boleta de {} con {}".format(self.first_name, self.payment_processor)
 
 class PaypalUSDConversion(models.Model):
     """

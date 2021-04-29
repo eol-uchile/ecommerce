@@ -53,11 +53,15 @@ class SDNCheckFailureAdmin(admin.ModelAdmin):
 @admin.register(BoletaElectronica)
 class BoletaElectronicaAdmin(admin.ModelAdmin):
     raw_id_fields = ('basket',)
-    search_fields = ('folio','voucher_id',)
+    search_fields = ('folio','voucher_id','basket')
+    list_display = ('voucher_id','folio', 'amount','emission_date')
+    ordering = ['-emission_date']
 
 @admin.register(UserBillingInfo)
 class UserBillingAdmin(admin.ModelAdmin):
-    pass
+    raw_id_fields = ('boleta','basket')
+    list_display = ('first_name','boleta', 'basket','payment_processor')
+    search_fields = ['basket__owner__username']
 
 @admin.register(BoletaErrorMessage)
 class BoletaErrorMessageAdmin(admin.ModelAdmin):
@@ -67,12 +71,10 @@ class BoletaErrorMessageAdmin(admin.ModelAdmin):
 @admin.register(PaypalUSDConversion)
 class PaypalUSDConversionAdmin(admin.ModelAdmin):
     raw_id_fields = ('basket',)
-    pass
 
 
 @admin.register(BoletaUSDConversion)
 class BoletaUSDConversionAdmin(admin.ModelAdmin):
     raw_id_fields = ('boleta',)
-    pass
 
 admin.site.register(PaypalProcessorConfiguration, SingletonModelAdmin)
