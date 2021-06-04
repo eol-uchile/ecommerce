@@ -75,10 +75,12 @@ Add a second application for the oauth grants:
 
 These configuration must match first the BACKEND_SERVICE_EDX keys and for the latter the SOCIAL_AUTH_EDX_OAUTH2
 
-
 Afterwards add the *commerce/commerce configurations* with the defaults and a time of 60 seconds.
 
 Finally add the scopes *user_id, profile, email* to the application grants and associate it to the oauth application with authorization code.
+
+You should enable the feature **ENTERPRISE_SERVICE_URL: https://uabierta.uchile.cl/enterprise/** and check that both **EDX_API_KEY** are the same on the configuration for the lms and ecommerce.
+
 
 ## Managing courses
 

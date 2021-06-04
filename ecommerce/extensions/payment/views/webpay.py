@@ -1,26 +1,19 @@
 """ Views for interacting with the payment processor. """
 import logging
-import os
-from io import StringIO
-from six.moves.urllib.parse import urlencode
 
-from django.core.exceptions import MultipleObjectsReturned
-from django.core.management import call_command
 from django.db import transaction
-from django.http import Http404, HttpResponseBadRequest, HttpResponseRedirect
+from django.http import Http404, HttpResponseRedirect
 from django.shortcuts import redirect, render
 from django.urls import reverse
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
-from django.views.generic import View, RedirectView, TemplateView
+from django.views.generic import View
 from oscar.apps.partner import strategy
-from oscar.apps.payment.exceptions import PaymentError
 from oscar.core.loading import get_class, get_model
 
 from ecommerce.core.url_utils import get_lms_dashboard_url, get_lms_explore_courses_url
 from ecommerce.extensions.basket.utils import basket_add_organization_attribute
 from ecommerce.extensions.checkout.mixins import EdxOrderPlacementMixin
-from ecommerce.extensions.checkout.utils import get_receipt_page_url
 from ecommerce.extensions.payment.processors.webpay import Webpay, WebpayAlreadyProcessed, WebpayTransactionDeclined, WebpayRefundRequired
 from ecommerce.extensions.payment.views import EolAlertMixin
 

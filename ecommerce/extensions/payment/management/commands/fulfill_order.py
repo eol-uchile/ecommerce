@@ -1,11 +1,10 @@
 import logging
-import requests
 import datetime
 
 from collections import namedtuple
 from threadlocals.threadlocals import set_thread_variable
 
-from django.core.management.base import BaseCommand, CommandError
+from django.core.management.base import BaseCommand
 from django.db import transaction
 
 from oscar.core.loading import get_model, get_class
@@ -14,7 +13,7 @@ from oscar.apps.payment.exceptions import PaymentError
 
 from ecommerce.extensions.payment.processors import HandledProcessorResponse
 from ecommerce.extensions.checkout.mixins import EdxOrderPlacementMixin
-from ecommerce.extensions.payment.processors.webpay import Webpay, WebpayAlreadyProcessed, WebpayTransactionDeclined
+from ecommerce.extensions.payment.processors.webpay import Webpay
 
 Order = get_model('order','Order')
 Basket = get_model('basket','Basket')
@@ -140,7 +139,7 @@ class OrderPlacer(EdxOrderPlacementMixin):
             raise Exception("Error while processing order.")
 
 class Command(BaseCommand):
-    help = """Completes order creation for unfulfilled orders.
+    help = """Completes order creation for unfulfilled webpay orders.
 
     Example:
         python manage.py fulfill_order -l EOL-10001 EOL-10002"""

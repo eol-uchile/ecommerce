@@ -1,25 +1,16 @@
 """ Webpay payment processing. """
 
-
-import hashlib
-import hmac
 import logging
 import requests
-import urllib.request
-import urllib.parse
-import urllib.error
 from urllib.parse import urljoin
-from collections import OrderedDict
 from decimal import Decimal
-import xml.etree.ElementTree as xml
 
 from django.urls import reverse
 from oscar.apps.payment.exceptions import GatewayError, TransactionDeclined
-from oscar.core.loading import get_class, get_model
+from oscar.core.loading import get_model
 
 from ecommerce.extensions.payment.processors import BasePaymentProcessor, HandledProcessorResponse, EolBillingMixin
 from ecommerce.extensions.payment.exceptions import PartialAuthorizationError
-from ecommerce.extensions.checkout.utils import get_receipt_page_url
 from ecommerce.core.url_utils import get_ecommerce_url
 
 Order = get_model('order', 'Order')
