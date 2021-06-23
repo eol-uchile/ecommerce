@@ -369,7 +369,7 @@ class BoletaUSDConversion(models.Model):
         ordering = ["-creation_date"]
 
     creation_date = models.DateTimeField(default=timezone.now, editable=False)
-    clp_to_usd = models.IntegerField(default=750, help_text="Rate used at boleta emission to get the correct CLP from the USDs")
+    clp_to_usd = models.DecimalField(default=750, max_digits=6, decimal_places=2, help_text="Rate used at boleta emission to get the correct CLP from the USDs")
     boleta = models.ManyToManyField(BoletaElectronica, blank=True)
 
     def __str__(self):

@@ -195,6 +195,7 @@ def determine_billable_price(basket, product_line, order, payment_processor='web
         # Parse to the current billable price
         billable_conversion_rate = BoletaUSDConversion.objects.first().clp_to_usd
         unitPrice = (Decimal(dollars) * Decimal(billable_conversion_rate)).quantize(Decimal('1'), rounding=ROUND_HALF_UP)
+        unitPrice = int(unitPrice)
         return unitPrice, unitPrice
     else:
         # DISCLAIMER:

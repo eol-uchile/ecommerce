@@ -30,6 +30,7 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument("--dry-run", help="Run without applying changes", action='store_true', default=False)
         parser.add_argument("--processor", help="Payment processor name used (webpay or paypal)", default="webpay")
+        parser.add_argument("--order-number", nargs="+", help="Subset of orders to process like EOL-10001", required=False)
 
     def handle(self, *args, **options):
 
@@ -47,6 +48,9 @@ class Command(BaseCommand):
         # Get payed orders
         orders = Order.objects.filter(status="Complete", basket__boletaelectronica=None, total_incl_tax__gt=0, basket__userbillinginfo__payment_processor=payment_processor)
 
+        if options["order_number"] is not None and len(options["order_number"]) > 0:
+            orders = orders.filter(number__in=options["order_number"])
+
         for order in orders:
             try:
                 # We re-check if there is a boleta associated to the basket via the userbillinginfo
@@ -62,7 +66,7 @@ class Command(BaseCommand):
 
                 if not dry_run:
                     auth = self.get_auth_from_cache(basket)
-                    boleta_id = make_boleta_electronica(basket, order, auth)
+                    boleta_id = make_boleta_electronica(basket, order, auth, payment_processor=payment_processor)
                     
                 completed = completed + 1
                 logger.info("Completed Boleta for order {}, user {}, amount CLP {}".format(order.number,basket.owner.username, order.total_incl_tax))
