@@ -169,6 +169,9 @@ class Webpay(EolBillingMixin, BasePaymentProcessor):
                         basket.order_number))
                     raise WebpayRefundRequired()
 
+                # Associate final processor
+                self.asociateUserInfoToProcessor(basket, self.NAME)
+                
                 return HandledProcessorResponse(
                     transaction_id=basket.order_number,
                     total=basket.total_incl_tax,

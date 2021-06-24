@@ -365,6 +365,9 @@ class Paypal(EolBillingMixin, BasePaymentProcessor):
         email = payment.payer.payer_info.email
         label = 'PayPal ({})'.format(email) if email else 'PayPal Account'
 
+        # Associate final processor
+        self.asociateUserInfoToProcessor(basket, self.NAME)
+
         return HandledProcessorResponse(
             transaction_id=transaction_id,
             total=total,

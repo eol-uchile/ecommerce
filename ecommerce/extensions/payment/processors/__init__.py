@@ -279,6 +279,21 @@ class EolBillingMixin:
         # paypal == paypal
         # webpay == webpay
 
+    def asociateUserInfoToProcessor(self, basket, processor):
+        try:
+            user_info = UserBillingInfo.objects.get(basket=basket)
+            previous_processor = user_info.payment_processor
+            user_info.payment_processor = processor
+            user_info.save()
+            # Associate to paypal (default paypal case)
+            if previous_processor == "webpay" and processor == "paypal":
+                self.associate_paypal_conversion_rate(basket)
+            # Revert paypal case
+            elif previous_processor == "paypal" and processor == "webpay":
+                self.remove_from_paypal_conversion_rate(basket)        
+        except UserBillingInfo.DoesNotExist:
+            logger.error("No User Billing info associated to Basket")
+
     def send_support_email(self, subject, message):
         if hasattr(settings, 'BOLETA_CONFIG') and (settings.BOLETA_CONFIG.get('enabled', False)):
             send_mail(
