@@ -232,6 +232,10 @@ class EolBillingMixin:
             raise Exception("No Paypal CLP to USD conversion defined")
 
     def createUserBillingInfo(self, request, basket, id_type, id_number, processor="webpay"):
+        
+        # Stop orders from saving responses and info if finished (Why do I have to write this)
+        if basket.status == 'Submitted':
+            raise Exception("Orden ya procesada"+str(basket))
         # Overwrite userInfo:
         # sometimes the requests might duplicate
         # and a previous info might exists
