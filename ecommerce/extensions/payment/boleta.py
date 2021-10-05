@@ -190,20 +190,23 @@ def determine_billable_price(basket, product_line, order, payment_processor='web
     if payment_processor == 'paypal':
         # Determine price sent to paypal
         conversion_rate_used = basket.paypalusdconversion_set.first().clp_to_usd
-        dollars = (Decimal(order.total_incl_tax) / Decimal(conversion_rate_used)).quantize(Decimal('.11'), rounding=ROUND_HALF_UP)
+        dollars = (Decimal(product_line.unit_price_incl_tax) / Decimal(conversion_rate_used)).quantize(Decimal('.11'), rounding=ROUND_HALF_UP)
 
         # Parse to the current billable price
         billable_conversion_rate = BoletaUSDConversion.objects.first().clp_to_usd
+        total = (Decimal(dollars) * Decimal(billable_conversion_rate) * Decimal(product_line.quantity)).quantize(Decimal('1'), rounding=ROUND_HALF_UP)
+        total = int(total)
+        
         unitPrice = (Decimal(dollars) * Decimal(billable_conversion_rate)).quantize(Decimal('1'), rounding=ROUND_HALF_UP)
         unitPrice = int(unitPrice)
-        return unitPrice, unitPrice
+        return unitPrice, total
     else:
         # DISCLAIMER:
         # Currently discounts can only be between 1-99% of price
         # and only applied when purchasing a SINGLE PRODUCT.
         # Get price if discount is applied
         # NOTE: this is redundant but later we might need it
-        unitPrice = product_line.price_incl_tax
+        unitPrice = product_line.unit_price_incl_tax
         if order.total_discount_incl_tax != 0 and product_line.quantity == 1:
             unitPrice = order.total_incl_tax
 
