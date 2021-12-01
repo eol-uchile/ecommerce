@@ -168,14 +168,27 @@ class WebpayErrorView(View):
         }
         # Reference https://www.transbankdevelopers.cl/producto/webpay#codigos-de-respuesta-de-autorizacion
         # but we may just ignore the explanations in the future
+        # UPDATED to new codes
         if code == "-1":
-            context["msg"] = "Detalle: posible error en el ingreso de datos de la transacción"
+            context["msg"] = "Detalle: Tarjeta inválida"
         elif code == "-2":
-            context["msg"] = "Detalle: se produjo fallo al procesar la transacción."
+            context["msg"] = "Detalle: Error de conexión"
         elif code == "-3":
-            context["msg"] = "Detalle: existe un problema desde Transbank."
+            context["msg"] = "Detalle: Excede monto máximo"
         elif code == "-4":
-            context["msg"] = "Detalle: operación rechazada por parte del emisor."
+            context["msg"] = "Detalle: Fecha de expiración inválida"
+        elif code == "-5":
+            context["msg"] = "Detalle: Problema en autenticación"
+        elif code == "-6":
+            context["msg"] = "Detalle: Rechazo general"
+        elif code == "-7":
+            context["msg"] = "Detalle: Tarjeta bloqueada"
+        elif code == "-8":
+            context["msg"] = "Detalle: Tarjeta vencida"
+        elif code == "-9":
+            context["msg"] = "Detalle: Transacción no soportada"
+        elif code == "-1":
+            context["msg"] = "Detalle: Problema en la transacción"
         else:
             # Omit details
             context["msg"] = "Detalle: existe un problema desde Transbank."

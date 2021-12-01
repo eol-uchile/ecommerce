@@ -231,6 +231,10 @@ def make_boleta_electronica(basket, order, auth, configuration=default_config, p
       configuration - configuration file from a webpay payment processor
     Returns:
       It returns the id of the new boleta
+      
+      Reference within the VPN
+
+      https://ventas-test.uchile.cl/ventas-api-front/api/v1/swagger-ui.html#/ventas-controller/creaVentaUsingPOST
     """
 
     # Get user info
