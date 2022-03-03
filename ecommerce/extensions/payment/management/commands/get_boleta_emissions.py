@@ -141,8 +141,7 @@ class Command(BaseCommand):
             for item in raw_data:
                 boletas_data[item["id"]] = item
             self.register_duplicates(remote_boleta_orders, boletas_data)
-            logger.error("Inconsistency detected look_for_duplicates")
-            # raise CommandError("Inconsistency detected")
+            raise CommandError("Inconsistency detected")
         return remote_boleta_orders
 
     def find_on_local_db(self, order_boleta_pairs, raw_data):
