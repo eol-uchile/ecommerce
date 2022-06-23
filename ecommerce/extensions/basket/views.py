@@ -481,7 +481,7 @@ class BasketAddItemsView(BasketLogicMixin, APIView):
         for x in products:
             r = self._get_enrollment_api(x.course.id, user)
             if r is None:
-                raise BadRequestException(_('Error inesperado, contáctese con mesa de ayuda de la platafoma'))
+                raise BadRequestException(_('Error inesperado, contáctese con mesa de ayuda de la plataforma'))
             elif r is False:
                 raise BadRequestException(_('Usuario no está inscrito en el curso de certificación'))
 
@@ -506,13 +506,15 @@ class BasketAddItemsView(BasketLogicMixin, APIView):
             headers['X-Forwarded-For'] = ip
 
         r = requests.get('{}/{},{}'.format(enrollment_api_url, user.username, quote_plus(course_id)), headers=headers, timeout=timeout)
-        logger.info(r.status_code)
         if r.status_code == 200:
-            logger.info(r.text)
-            data = r.json()
-            return 'is_active' in data and data['is_active'] is True
+            try:
+                data = r.json()
+                return 'is_active' in data and data['is_active'] is True
+            except Exception as e:
+                logger.info('User dont have enrollment, user: {}, course: {}'.format(user.username, course_id))
+                return False
         else:
-            logger.info('Error request check enrollment user, status_code:{}, text: {}'.format(r.status_code, r.text))
+            logger.info('Error request check enrollment user: {}, status_code:{}, text: {}'.format(user.username, r.status_code, r.text))
             return None
 
     def _get_voucher(self, request):
