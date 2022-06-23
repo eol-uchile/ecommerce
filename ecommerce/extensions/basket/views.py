@@ -479,7 +479,7 @@ class BasketAddItemsView(BasketLogicMixin, APIView):
             Verify if current user is enroll in the course
         """
         for x in products:
-            r = self._get_enrollment_api(x.course, user)
+            r = self._get_enrollment_api(x.course.id, user)
             if r is None:
                 raise BadRequestException(_('Error inesperado, contáctese con mesa de ayuda de la platafoma'))
             elif r is False:
