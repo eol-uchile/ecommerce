@@ -426,7 +426,7 @@ class BasketAddItemsView(BasketLogicMixin, APIView):
         try:
             skus = self._get_skus(request)
             products = self._get_products(request, skus)
-            self.check_enrollment_products(products, request.user.username)
+            self.check_enrollment_products(products, request.user)
             voucher = None
             invalid_code = None
             code = request.GET.get('code', None)
@@ -474,18 +474,18 @@ class BasketAddItemsView(BasketLogicMixin, APIView):
             raise BadRequestException(_('Products with SKU(s) [{skus}] do not exist.').format(skus=', '.join(skus)))
         return products
 
-    def check_enrollment_products(self, products, username):
+    def check_enrollment_products(self, products, user):
         """
             Verify if current user is enroll in the course
         """
         for x in products:
-            r = self._get_enrollment_api(x.course, username)
+            r = self._get_enrollment_api(x.course, user)
             if r is None:
                 raise BadRequestException(_('Error inesperado, contáctese con mesa de ayuda de la platafoma'))
             elif r is False:
                 raise BadRequestException(_('Usuario no está inscrito en el curso de certificación'))
 
-    def _get_enrollment_api(self, username, course_id):
+    def _get_enrollment_api(self, course_id, user):
         from django.conf import settings
         from urllib.parse import quote_plus
         from ecommerce.core.url_utils import get_lms_enrollment_api_url
@@ -504,7 +504,7 @@ class BasketAddItemsView(BasketLogicMixin, APIView):
         if ip:
             headers['X-Forwarded-For'] = ip
 
-        r = requests.get('{}/{},{}'.format(enrollment_api_url, username, quote_plus(course_id)), headers=headers, timeout=timeout)
+        r = requests.get('{}/{},{}'.format(enrollment_api_url, user.username, quote_plus(course_id)), headers=headers, timeout=timeout)
         logger.info(r.status_code)
         if r.status_code == 200:
             logger.info(r.text)
