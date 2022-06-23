@@ -486,6 +486,7 @@ class BasketAddItemsView(BasketLogicMixin, APIView):
                 raise BadRequestException(_('Usuario no está inscrito en el curso de certificación'))
 
     def _get_enrollment_api(self, course_id, user):
+        import requests
         from django.conf import settings
         from urllib.parse import quote_plus
         from ecommerce.core.url_utils import get_lms_enrollment_api_url
