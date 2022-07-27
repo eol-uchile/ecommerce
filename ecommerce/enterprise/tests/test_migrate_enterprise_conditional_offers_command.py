@@ -1,8 +1,5 @@
 # encoding: utf-8
 """Contains the tests for migrate enterprise conditional offers command."""
-
-from __future__ import absolute_import, unicode_literals
-
 import logging
 
 from django.core.management import call_command
@@ -14,7 +11,6 @@ from oscar.test.factories import (
     RangeFactory,
     VoucherFactory
 )
-from six.moves import range
 
 from ecommerce.enterprise.management.commands.migrate_enterprise_conditional_offers import Command
 from ecommerce.programs.custom import get_model

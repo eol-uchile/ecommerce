@@ -31,7 +31,7 @@
        data-order-id="{{ order.number }}"
        data-total-amount="{{ order.total_incl_tax | unlocalize }}"
        data-back-button="{{ disable_back_button | default:0 }}">
-       {% include 'partials/alert_messages.html' %}
+       {% include 'oscar/partials/alert_messages.html' %}
 
       <h2 class="thank-you">{% trans "Thank you for your order!" as tmsg %}{{ tmsg | force_escape }}</h2>
 
@@ -40,7 +40,7 @@
           <div class="copy col-md-8">
             <div class="confirm-message">
               {% captureas link_start %}
-                <a href="mailto:{{ order.user.email }}">
+                <a data-hj-suppress href="mailto:{{ order.user.email }}">
               {% endcaptureas %}
               {% if has_enrollment_code_product %}
                   {% blocktrans trimmed asvar tmsg %}
@@ -59,7 +59,7 @@
             </div>
 
             {% if order.billing_address %}
-              <address class="billing-address">
+              <address data-hj-suppress class="billing-address">
                 {% for field in order.billing_address.active_address_fields %}
                   {{ field }}<br/>
                 {% endfor %}
@@ -121,7 +121,7 @@
 
                     {% if discount.voucher_code %}
                       {% with voucher=discount.voucher %}
-                        <span class="discount">{{ voucher.code }}</span>
+                        <span data-hj-suppress class="discount">{{ voucher.code }}</span>
                         <span class="discount">
                           {% filter force_escape %}
                             {% blocktrans trimmed with voucher_code=voucher.code voucher_discount_amount=voucher.benefit|benefit_discount %}

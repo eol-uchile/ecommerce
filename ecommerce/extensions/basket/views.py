@@ -1,15 +1,15 @@
 # pylint: disable=no-else-return
-from __future__ import absolute_import, unicode_literals
+
 
 import logging
 import time
+import urllib
 from collections import OrderedDict
 from datetime import datetime
 from decimal import Decimal
 
 import dateutil.parser
 import newrelic.agent
-import six
 import waffle
 from django.http import HttpResponseBadRequest, HttpResponseRedirect
 from django.shortcuts import render
@@ -49,6 +49,8 @@ from ecommerce.extensions.basket import message_utils
 from ecommerce.extensions.basket.constants import EMAIL_OPT_IN_ATTRIBUTE
 from ecommerce.extensions.basket.exceptions import BadRequestException, RedirectException, VoucherException
 from ecommerce.extensions.basket.utils import (
+    add_flex_microform_flag_to_url,
+    add_invalid_code_message_to_url,
     add_utm_params_to_url,
     apply_offers_on_basket,
     apply_voucher_on_basket_and_check_discount,
@@ -83,88 +85,7 @@ Voucher = get_model('voucher', 'Voucher')
 Selector = get_class('partner.strategy', 'Selector')
 
 
-class BasketAddItemsView(APIView):
-    """
-    View that adds multiple products to a user's basket.
-    An additional coupon code can be supplied so the offer is applied to the basket.
-    """
-    permission_classes = (LoginRedirectIfUnauthenticated,)
-
-    def get(self, request):
-        # Send time when this view is called - https://openedx.atlassian.net/browse/REV-984
-        properties = {'emitted_at': time.time()}
-        track_segment_event(request.site, request.user, 'Basket Add Items View Called', properties)
-
-        try:
-            skus = self._get_skus(request)
-            products = self._get_products(request, skus)
-            voucher = self._get_voucher(request)
-
-            logger.info('Starting payment flow for user [%s] for products [%s].', request.user.username, skus)
-
-            available_products = self._get_available_products(request, products)
-            self._set_email_preference_on_basket(request)
-
-            try:
-                prepare_basket(request, available_products, voucher)
-            except AlreadyPlacedOrderException:
-                return render(request, 'edx/error.html', {'error': _('You have already purchased these products')})
-
-            return self._redirect_response_to_basket_or_payment(request)
-
-        except BadRequestException as e:
-            return HttpResponseBadRequest(six.text_type(e))
-        except RedirectException as e:
-            return e.response
-
-    def _get_skus(self, request):
-        skus = [escape(sku) for sku in request.GET.getlist('sku')]
-        if not skus:
-            raise BadRequestException(_('No SKUs provided.'))
-        return skus
-
-    def _get_products(self, request, skus):
-        partner = get_partner_for_site(request)
-        products = Product.objects.filter(stockrecords__partner=partner, stockrecords__partner_sku__in=skus)
-        if not products:
-            raise BadRequestException(_('Products with SKU(s) [{skus}] do not exist.').format(skus=', '.join(skus)))
-        return products
-
-    def _get_voucher(self, request):
-        code = request.GET.get('code', None)
-        return Voucher.objects.get(code=code) if code else None
-
-    def _get_available_products(self, request, products):
-        unavailable_product_ids = []
-        for product in products:
-            purchase_info = request.strategy.fetch_for_product(product)
-            if not purchase_info.availability.is_available_to_buy:
-                logger.warning('Product [%s] is not available to buy.', product.title)
-                unavailable_product_ids.append(product.id)
-
-        available_products = products.exclude(id__in=unavailable_product_ids)
-        if not available_products:
-            raise BadRequestException(_('No product is available to buy.'))
-        return available_products
-
-    def _set_email_preference_on_basket(self, request):
-        """
-        Associate the user's email opt in preferences with the basket in
-        order to opt them in later as part of fulfillment
-        """
-        BasketAttribute.objects.update_or_create(
-            basket=request.basket,
-            attribute_type=BasketAttributeType.objects.get(name=EMAIL_OPT_IN_ATTRIBUTE),
-            defaults={'value_text': request.GET.get('email_opt_in') == 'true'},
-        )
-
-    def _redirect_response_to_basket_or_payment(self, request):
-        redirect_url = get_payment_microfrontend_or_basket_url(request)
-        redirect_url = add_utm_params_to_url(redirect_url, list(self.request.GET.items()))
-        return HttpResponseRedirect(redirect_url, status=303)
-
-
-class BasketLogicMixin(object):
+class BasketLogicMixin:
     """
     Business logic for determining basket contents and checkout/payment options.
     """
@@ -490,6 +411,150 @@ class BasketLogicMixin(object):
             return None
 
 
+class BasketAddItemsView(BasketLogicMixin, APIView):
+    """
+    View that adds multiple products to a user's basket.
+    An additional coupon code can be supplied so the offer is applied to the basket.
+    """
+    permission_classes = (LoginRedirectIfUnauthenticated,)
+
+    def get(self, request):
+        # Send time when this view is called - https://openedx.atlassian.net/browse/REV-984
+        properties = {'emitted_at': time.time()}
+        track_segment_event(request.site, request.user, 'Basket Add Items View Called', properties)
+
+        try:
+            skus = self._get_skus(request)
+            products = self._get_products(request, skus)
+            self.check_enrollment_products(products, request.user)
+            voucher = None
+            invalid_code = None
+            code = request.GET.get('code', None)
+            try:
+                voucher = self._get_voucher(request)
+            except Voucher.DoesNotExist as e:  # pragma: nocover
+                # Display an error message when an invalid code is passed as a parameter
+                invalid_code = code
+
+            logger.info('Starting payment flow for user [%s] for products [%s].', request.user.username, skus)
+
+            available_products = self._get_available_products(request, products)
+
+            try:
+                basket = prepare_basket(request, available_products, voucher)
+            except AlreadyPlacedOrderException:
+                return render(request, 'edx/error.html', {'error': _('You have already purchased these products'), "support_email": request.site.siteconfiguration.payment_support_email})
+
+            self._set_email_preference_on_basket(request, basket)
+
+            # Used basket object from request to allow enterprise offers
+            # being applied on basket via BasketMiddleware
+            self.verify_enterprise_needs(request.basket)
+            if code and not request.basket.vouchers.exists():
+                if not (len(available_products) == 1 and available_products[0].is_enrollment_code_product):
+                    # Display an error message when an invalid code is passed as a parameter
+                    invalid_code = code
+            return self._redirect_response_to_basket_or_payment(request, invalid_code)
+
+        except BadRequestException as e:
+            return HttpResponseBadRequest(str(e))
+        except RedirectException as e:
+            return e.response
+
+    def _get_skus(self, request):
+        skus = [escape(sku) for sku in request.GET.getlist('sku')]
+        if not skus:
+            raise BadRequestException(_('No SKUs provided.'))
+        return skus
+
+    def _get_products(self, request, skus):
+        partner = get_partner_for_site(request)
+        products = Product.objects.filter(stockrecords__partner=partner, stockrecords__partner_sku__in=skus)
+        if not products:
+            raise BadRequestException(_('Products with SKU(s) [{skus}] do not exist.').format(skus=', '.join(skus)))
+        return products
+
+    def check_enrollment_products(self, products, user):
+        """
+            Verify if current user is enroll in the course
+        """
+        for x in products:
+            r = self._get_enrollment_api(x.course.id, user)
+            if r is None:
+                raise BadRequestException(_('Error inesperado, contáctese con mesa de ayuda de la plataforma'))
+            elif r is False:
+                raise BadRequestException(_('Usuario no está inscrito en el curso de certificación'))
+
+    def _get_enrollment_api(self, course_id, user):
+        import requests
+        from django.conf import settings
+        from urllib.parse import quote_plus
+        from ecommerce.core.url_utils import get_lms_enrollment_api_url
+        from ecommerce.extensions.analytics.utils import parse_tracking_context
+        #/api/enrollment/v1/enrollment
+        enrollment_api_url = get_lms_enrollment_api_url()
+        timeout = settings.ENROLLMENT_FULFILLMENT_TIMEOUT
+        headers = {
+            'Content-Type': 'application/json',
+            'X-Edx-Api-Key': settings.EDX_API_KEY
+        }
+        __, client_id, ip = parse_tracking_context(user, usage='fulfill enrollment')
+
+        if client_id:
+            headers['X-Edx-Ga-Client-Id'] = client_id
+        if ip:
+            headers['X-Forwarded-For'] = ip
+
+        r = requests.get('{}/{},{}'.format(enrollment_api_url, user.username, quote_plus(course_id)), headers=headers, timeout=timeout)
+        if r.status_code == 200:
+            try:
+                data = r.json()
+                return 'is_active' in data and data['is_active'] is True
+            except Exception as e:
+                logger.info('User dont have enrollment, user: {}, course: {}'.format(user.username, course_id))
+                return False
+        else:
+            logger.info('Error request check enrollment user: {}, status_code:{}, text: {}'.format(user.username, r.status_code, r.text))
+            return None
+
+    def _get_voucher(self, request):
+        code = request.GET.get('code', None)
+        return Voucher.objects.get(code=code) if code else None
+
+    def _get_available_products(self, request, products):
+        unavailable_product_ids = []
+        for product in products:
+            purchase_info = request.strategy.fetch_for_product(product)
+            if not purchase_info.availability.is_available_to_buy:
+                logger.warning('Product [%s] is not available to buy.', product.title)
+                unavailable_product_ids.append(product.id)
+
+        available_products = products.exclude(id__in=unavailable_product_ids)
+        if not available_products:
+            raise BadRequestException(_('No product is available to buy.'))
+        return available_products
+
+    def _set_email_preference_on_basket(self, request, basket):
+        """
+        Associate the user's email opt in preferences with the basket in
+        order to opt them in later as part of fulfillment
+        """
+        BasketAttribute.objects.update_or_create(
+            basket=basket,
+            attribute_type=BasketAttributeType.objects.get(name=EMAIL_OPT_IN_ATTRIBUTE),
+            defaults={'value_text': request.GET.get('email_opt_in') == 'true'},
+        )
+
+    def _redirect_response_to_basket_or_payment(self, request, invalid_code=None):
+        redirect_url = get_payment_microfrontend_or_basket_url(request)
+        redirect_url = add_utm_params_to_url(redirect_url, list(self.request.GET.items()))
+        redirect_url = add_invalid_code_message_to_url(redirect_url, invalid_code)
+        # TODO: Remove as part of PCI-81
+        redirect_url = add_flex_microform_flag_to_url(redirect_url, request)
+
+        return HttpResponseRedirect(redirect_url, status=303)
+
+
 class BasketSummaryView(BasketLogicMixin, BasketView):
     @newrelic.agent.function_trace()
     def get_context_data(self, **kwargs):
@@ -552,7 +617,7 @@ class BasketSummaryView(BasketLogicMixin, BasketView):
             context.update(payment_processors_data)
 
         context.update({
-            'formset_lines_data': list(six.moves.zip(formset, lines_data)),
+            'formset_lines_data': list(zip(formset, lines_data)),
             'homepage_url': get_lms_url(''),
             'min_seat_quantity': 1,
             'max_seat_quantity': 100,
@@ -581,7 +646,7 @@ class BasketSummaryView(BasketLogicMixin, BasketView):
             return {
                 'client_side_payment_processor': payment_processor,
                 'enable_client_side_checkout': True,
-                'months': list(six.moves.range(1, 13)),
+                'months': list(range(1, 13)),
                 'payment_form': PaymentForm(
                     user=self.request.user,
                     request=self.request,
@@ -590,13 +655,38 @@ class BasketSummaryView(BasketLogicMixin, BasketView):
                 ),
                 'paypal_enabled': 'paypal' in (p.NAME for p in payment_processors),
                 # Assumption is that the credit card duration is 15 years
-                'years': list(six.moves.range(current_year, current_year + 16)),
+                'years': list(range(current_year, current_year + 16)),
             }
         else:
             msg = 'Unable to load client-side payment processor [{processor}] for ' \
                   'site configuration [{sc}]'.format(processor=site_configuration.client_side_payment_processor,
                                                      sc=site_configuration.id)
             raise SiteConfigurationError(msg)
+
+
+class CaptureContextApiLogicMixin:  # pragma: no cover
+    """
+    Business logic for the capture context API.
+    """
+    def _add_capture_context(self, response):
+        response['flex_microform_enabled'] = waffle.flag_is_active(
+            self.request,
+            'payment.cybersource.flex_microform_enabled'
+        )
+        if not response['flex_microform_enabled']:
+            return
+        payment_processor_class = self.request.site.siteconfiguration.get_client_side_payment_processor_class()
+        if not payment_processor_class:
+            return
+        payment_processor = payment_processor_class(self.request.site)
+        if not hasattr(payment_processor, 'get_capture_context'):
+            return
+
+        try:
+            response['capture_context'] = payment_processor.get_capture_context(self.request.session)
+        except:  # pylint: disable=bare-except
+            logger.exception("Error generating capture_context")
+            return
 
 
 class PaymentApiLogicMixin(BasketLogicMixin):
@@ -711,6 +801,30 @@ class PaymentApiLogicMixin(BasketLogicMixin):
         return message_utils.get_response_status(response['messages'])
 
 
+class CaptureContextApiView(CaptureContextApiLogicMixin, APIView):  # pragma: no cover
+    """
+    Api for retrieving capture context / public key for the Cybersource flex-form.
+
+    GET:
+        Retrieves a capture context / public key for the Cybersource flex-form.
+    """
+    permission_classes = (IsAuthenticated,)
+
+    def get(self, request):  # pylint: disable=unused-argument
+        try:
+            return self.get_capture_context_api_response()
+        except RedirectException as e:
+            return Response({'redirect': e.response.url})
+
+    def get_capture_context_api_response(self, status=None):
+        """
+        Serializes the capture context api response.
+        """
+        data = {}
+        self._add_capture_context(data)
+        return Response(data, status=status)
+
+
 class PaymentApiView(PaymentApiLogicMixin, APIView):
     """
     Api for retrieving basket contents and checkout/payment options.
@@ -818,7 +932,7 @@ class QuantityAPIView(APIView, View, PaymentApiLogicMixin):
         return self.get_payment_api_response(status=400)
 
 
-class VoucherAddLogicMixin(object):
+class VoucherAddLogicMixin:
     """
     VoucherAdd logic for adding a voucher.
     """
@@ -880,14 +994,14 @@ class VoucherAddLogicMixin(object):
             # the standard redemption flow, we kick the user out to the `redeem` flow.
             # This flow will handle any additional information that needs to be gathered
             # due to the fact that the voucher is attached to an Enterprise Customer.
-            params = six.moves.urllib.parse.urlencode(
+            params = urllib.parse.urlencode(
                 OrderedDict([
                     ('code', code),
                     ('sku', stock_record.partner_sku),
                     ('failure_url', self.request.build_absolute_uri(
                         '{path}?{params}'.format(
                             path=reverse('basket:summary'),
-                            params=six.moves.urllib.parse.urlencode(
+                            params=urllib.parse.urlencode(
                                 {
                                     CONSENT_FAILED_PARAM: code
                                 }

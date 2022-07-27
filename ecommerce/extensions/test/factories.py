@@ -1,10 +1,12 @@
-from __future__ import absolute_import
 
+
+import logging
 import uuid
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import factory
 from django.utils.timezone import now
+from faker import Faker
 from oscar.test.factories import Basket, BenefitFactory
 from oscar.test.factories import ConditionalOfferFactory as BaseConditionalOfferFactory
 from oscar.test.factories import (
@@ -22,19 +24,26 @@ from oscar.test.factories import create_product, create_stockrecord, get_class, 
 from ecommerce.enterprise.benefits import BENEFIT_MAP as ENTERPRISE_BENEFIT_MAP
 from ecommerce.enterprise.benefits import EnterpriseAbsoluteDiscountBenefit, EnterprisePercentageDiscountBenefit
 from ecommerce.enterprise.conditions import AssignableEnterpriseCustomerCondition, EnterpriseCustomerCondition
+from ecommerce.extensions.offer.constants import DAY3, DAY10, DAY19
 from ecommerce.extensions.offer.dynamic_conditional_offer import DynamicPercentageDiscountBenefit
 from ecommerce.extensions.offer.models import (
     OFFER_PRIORITY_ENTERPRISE,
     OFFER_PRIORITY_MANUAL_ORDER,
     OFFER_PRIORITY_VOUCHER,
+    CodeAssignmentNudgeEmails,
+    CodeAssignmentNudgeEmailTemplates,
     OfferAssignment
 )
 from ecommerce.extensions.order.benefits import ManualEnrollmentOrderDiscountBenefit
 from ecommerce.extensions.order.conditions import ManualEnrollmentOrderDiscountCondition
+from ecommerce.extensions.payment.models import SDNFallbackData, SDNFallbackMetadata
 from ecommerce.programs.benefits import AbsoluteDiscountBenefitWithoutRange, PercentageDiscountBenefitWithoutRange
 from ecommerce.programs.conditions import ProgramCourseRunSeatsCondition
 from ecommerce.programs.custom import class_path
 from ecommerce.tests.factories import SiteConfigurationFactory, UserFactory
+
+logger = logging.getLogger('faker')
+logger.setLevel(logging.INFO)  # Quiet down faker locale messages in tests.
 
 Benefit = get_model('offer', 'Benefit')
 Catalog = get_model('catalogue', 'Catalog')
@@ -216,7 +225,7 @@ class ProgramCourseRunSeatsConditionFactory(ConditionFactory):
     program_uuid = factory.LazyFunction(uuid.uuid4)
     proxy_class = class_path(ProgramCourseRunSeatsCondition)
 
-    class Meta(object):
+    class Meta:
         model = ProgramCourseRunSeatsCondition
 
 
@@ -251,21 +260,22 @@ class EnterpriseCustomerConditionFactory(ConditionFactory):
     enterprise_customer_catalog_uuid = factory.LazyFunction(uuid.uuid4)
     proxy_class = class_path(EnterpriseCustomerCondition)
 
-    class Meta(object):
+    class Meta:
         model = EnterpriseCustomerCondition
 
 
 class AssignableEnterpriseCustomerConditionFactory(ConditionFactory):
     proxy_class = class_path(AssignableEnterpriseCustomerCondition)
 
-    class Meta(object):
+    class Meta:
         model = AssignableEnterpriseCustomerCondition
 
 
 class ManualEnrollmentOrderDiscountConditionFactory(ConditionFactory):
     proxy_class = class_path(ManualEnrollmentOrderDiscountCondition)
+    enterprise_customer_uuid = factory.LazyFunction(uuid.uuid4)
 
-    class Meta(object):
+    class Meta:
         model = ManualEnrollmentOrderDiscountCondition
 
 
@@ -293,6 +303,7 @@ class EnterpriseOfferFactory(ConditionalOfferFactory):
     offer_type = ConditionalOffer.SITE
     priority = OFFER_PRIORITY_ENTERPRISE
     status = ConditionalOffer.OPEN
+    emails_for_usage_alert = 'example_1@example.com, example_2@example.com'
 
 
 class OfferAssignmentFactory(factory.DjangoModelFactory):
@@ -300,7 +311,7 @@ class OfferAssignmentFactory(factory.DjangoModelFactory):
     code = factory.Sequence(lambda n: 'VOUCHERCODE{number}'.format(number=n))
     user_email = factory.Sequence(lambda n: 'example_%s@example.com' % n)
 
-    class Meta(object):
+    class Meta:
         model = OfferAssignment
 
 
@@ -309,3 +320,44 @@ class DynamicPercentageDiscountBenefitFactory(BenefitFactory):
     type = ''
     value = 1
     proxy_class = class_path(DynamicPercentageDiscountBenefit)
+
+
+class CodeAssignmentNudgeEmailTemplatesFactory(factory.DjangoModelFactory):
+    email_greeting = factory.Faker('sentence')
+    email_closing = factory.Faker('sentence')
+    email_subject = factory.Faker('sentence')
+    name = factory.Faker('name')
+    email_type = factory.fuzzy.FuzzyChoice((DAY3, DAY10, DAY19))
+
+    class Meta:
+        model = CodeAssignmentNudgeEmailTemplates
+
+
+class CodeAssignmentNudgeEmailsFactory(factory.DjangoModelFactory):
+    email_template = factory.SubFactory(CodeAssignmentNudgeEmailTemplatesFactory)
+    user_email = factory.Sequence(lambda n: 'learner_%s@example.com' % n)
+    email_date = datetime.now()
+
+    class Meta:
+        model = CodeAssignmentNudgeEmails
+
+
+class SDNFallbackMetadataFactory(factory.DjangoModelFactory):
+    class Meta:
+        model = SDNFallbackMetadata
+
+    file_checksum = factory.Sequence(lambda n: Faker().md5())
+    import_state = 'New'
+    download_timestamp = datetime.now() - timedelta(days=10)
+
+
+class SDNFallbackDataFactory(factory.DjangoModelFactory):
+    class Meta:
+        model = SDNFallbackData
+
+    sdn_fallback_metadata = factory.SubFactory(SDNFallbackMetadataFactory)
+    source = "Specially Designated Nationals (SDN) - Treasury Department"
+    sdn_type = "Individual"
+    names = factory.Faker('name')
+    addresses = factory.Faker('address')
+    countries = factory.Faker('country_code')

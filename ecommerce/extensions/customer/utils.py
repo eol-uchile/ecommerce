@@ -1,4 +1,4 @@
-from __future__ import absolute_import
+
 
 from django.conf import settings
 from django.core.mail import EmailMessage, EmailMultiAlternatives
@@ -50,7 +50,7 @@ class Dispatcher(Dispatcher):
         email = self.send_email_messages(recipient, messages, site)
 
         # Is user is signed in, record the event for audit
-        if email and user.is_authenticated():
+        if email and user.is_authenticated:
             # pylint: disable=protected-access
             Email._default_manager.create(user=user,
                                           subject=email.subject,

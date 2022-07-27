@@ -1,9 +1,8 @@
-from __future__ import absolute_import, unicode_literals
+
 
 import json
 import logging
 
-import six
 from django.utils.translation import ugettext_lazy as _
 from edx_rest_api_client.exceptions import SlumberHttpBaseException
 from oscar.core.loading import get_model
@@ -16,7 +15,7 @@ Product = get_model('catalogue', 'Product')
 StockRecord = get_model('partner', 'StockRecord')
 
 
-class LMSPublisher(object):
+class LMSPublisher:
     def get_seat_expiration(self, seat):
         if not seat.expires or 'professional' in getattr(seat.attr, 'certificate_type', ''):
             return None
@@ -131,7 +130,7 @@ class LMSPublisher(object):
         message = None
         try:
             data = json.loads(response)
-            if isinstance(data, six.string_types):
+            if isinstance(data, str):
                 message = data
             elif isinstance(data, dict) and data:
                 message = list(data.values())[0]

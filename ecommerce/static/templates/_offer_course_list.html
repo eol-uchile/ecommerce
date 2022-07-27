@@ -23,7 +23,7 @@
                     <div class="col-sm-5">
                         <div class="image-container">
                             <div class="discount-percentage"><p><%= course.attributes.benefit_value %>
-                                <span><%- gettext('off') %></span></p>
+                                <span>Descuento</span></p>
                             </div>
                             <img class="img-responsive" src="<%= course.attributes.image_url %>"
                                  alt="<%= course.attributes.title %>"/>
@@ -76,7 +76,7 @@
                                         <% if (isEnrollmentCode) { %>
                                         <a href="/coupons/redeem/?code=<%= code %>&sku=<%= course.attributes.stockrecords.partner_sku %>"
                                            id="RedeemEnrollment"
-                                           class="btn btn-success"><%- gettext('Enroll Now') %></a>
+                                           class="btn btn-success"><%- gettext('Inscribir ahora') %></a>
                                         <% } else { %>
                                             <a href="/coupons/redeem/?code=<%= code %>&sku=<%= course.attributes.stockrecords.partner_sku %>"
                                                id="PurchaseCertificate"

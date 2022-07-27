@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-from __future__ import absolute_import, unicode_literals
+
 
 import django.db.models.deletion
 import django.utils.timezone
@@ -42,7 +42,7 @@ class Migration(migrations.Migration):
                 ('created', django_extensions.db.fields.CreationDateTimeField(default=django.utils.timezone.now, verbose_name='created', editable=False, blank=True)),
                 ('modified', django_extensions.db.fields.ModificationDateTimeField(default=django.utils.timezone.now, verbose_name='modified', editable=False, blank=True)),
                 ('state', models.CharField(default=b'Not Paid', max_length=255, choices=[(b'Not Paid', 'Not Paid'), (b'Paid', 'Paid')])),
-                ('basket', models.ForeignKey(to='basket.Basket')),
+                ('basket', models.ForeignKey(to='basket.Basket', on_delete=models.CASCADE)),
             ],
             options={
                 'ordering': ('-modified', '-created'),

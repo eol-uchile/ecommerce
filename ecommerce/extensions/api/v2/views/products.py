@@ -1,12 +1,13 @@
 """HTTP endpoints for interacting with products."""
-from __future__ import absolute_import
+
 
 import logging
 
+import django_filters
 from django.db.models import Q
 from django.utils.translation import ugettext_lazy as _
 from oscar.core.loading import get_model
-from rest_framework import filters, status
+from rest_framework import status
 from rest_framework.permissions import IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework_extensions.mixins import NestedViewSetMixin
@@ -24,8 +25,8 @@ Product = get_model('catalogue', 'Product')
 
 class ProductViewSet(NestedViewSetMixin, NonDestroyableModelViewSet):
     serializer_class = serializers.ProductSerializer
-    filter_backends = (filters.DjangoFilterBackend,)
-    filter_class = ProductFilter
+    filter_backends = (django_filters.rest_framework.DjangoFilterBackend,)
+    filterset_class = ProductFilter
     permission_classes = (IsAuthenticated, IsAdminUser,)
 
     def get_queryset(self):
@@ -89,5 +90,4 @@ class ProductViewSet(NestedViewSetMixin, NonDestroyableModelViewSet):
 
             entitlement_data = self.serializer_class(entitlement, context={'request': request}).data
             return Response(entitlement_data, status=status.HTTP_201_CREATED)
-        else:
-            return self.invalid_product_response('POST')
+        return self.invalid_product_response('POST')

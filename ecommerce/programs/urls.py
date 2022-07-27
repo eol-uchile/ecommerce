@@ -1,4 +1,4 @@
-from __future__ import absolute_import
+
 
 from django.conf.urls import include, url
 
@@ -11,5 +11,5 @@ OFFER_URLS = [
 ]
 urlpatterns = [
 
-    url(r'^offers/', include(OFFER_URLS, namespace='offers')),
+    url(r'^offers/', include((OFFER_URLS, 'offers'))),
 ]

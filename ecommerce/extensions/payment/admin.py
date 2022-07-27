@@ -1,4 +1,4 @@
-from __future__ import absolute_import
+
 
 from pprint import pformat
 
@@ -7,7 +7,7 @@ from oscar.apps.payment.admin import *  # noqa pylint: disable=wildcard-import,u
 from oscar.core.loading import get_model
 from solo.admin import SingletonModelAdmin
 
-from ecommerce.extensions.payment.models import SDNCheckFailure
+from ecommerce.extensions.payment.models import SDNCheckFailure, BoletaElectronica, UserBillingInfo, BoletaErrorMessage, PaypalUSDConversion, BoletaUSDConversion
 
 PaymentProcessorResponse = get_model('payment', 'PaymentProcessorResponse')
 PaypalProcessorConfiguration = get_model('payment', 'PaypalProcessorConfiguration')
@@ -36,8 +36,6 @@ class PaymentProcessorResponseAdmin(admin.ModelAdmin):
         # Use format_html() to escape user-provided inputs, avoiding an XSS vulnerability.
         return format_html('<br><br><pre>{}</pre>', pretty_response)
 
-    formatted_response.allow_tags = True
-
 
 @admin.register(SDNCheckFailure)
 class SDNCheckFailureAdmin(admin.ModelAdmin):
@@ -52,5 +50,31 @@ class SDNCheckFailureAdmin(admin.ModelAdmin):
         # Use format_html() to escape user-provided inputs, avoiding an XSS vulnerability.
         return format_html('<br><br><pre>{}</pre>', pretty_response)
 
+@admin.register(BoletaElectronica)
+class BoletaElectronicaAdmin(admin.ModelAdmin):
+    raw_id_fields = ('basket',)
+    search_fields = ('folio','voucher_id','basket')
+    list_display = ('voucher_id','folio', 'amount','emission_date')
+    ordering = ['-emission_date']
+
+@admin.register(UserBillingInfo)
+class UserBillingAdmin(admin.ModelAdmin):
+    raw_id_fields = ('boleta','basket')
+    list_display = ('first_name','boleta', 'basket','payment_processor')
+    search_fields = ['basket__owner__username']
+
+@admin.register(BoletaErrorMessage)
+class BoletaErrorMessageAdmin(admin.ModelAdmin):
+    pass
+
+
+@admin.register(PaypalUSDConversion)
+class PaypalUSDConversionAdmin(admin.ModelAdmin):
+    raw_id_fields = ('basket',)
+
+
+@admin.register(BoletaUSDConversion)
+class BoletaUSDConversionAdmin(admin.ModelAdmin):
+    raw_id_fields = ('boleta',)
 
 admin.site.register(PaypalProcessorConfiguration, SingletonModelAdmin)

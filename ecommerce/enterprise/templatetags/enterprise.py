@@ -1,4 +1,4 @@
-from __future__ import absolute_import
+
 
 from django import template
 
@@ -8,7 +8,7 @@ from ecommerce.enterprise.exceptions import EnterpriseDoesNotExist
 register = template.Library()
 
 
-@register.assignment_tag(takes_context=True)
+@register.simple_tag(takes_context=True)
 def enterprise_customer_for_voucher(context, voucher):
     """
     Retrieve enterprise customer associated with the given voucher.

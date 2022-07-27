@@ -1,10 +1,9 @@
 """HTTP endpoints for interacting with baskets."""
-from __future__ import absolute_import, unicode_literals
+
 
 import logging
 import warnings
 
-import six
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import transaction
@@ -160,7 +159,7 @@ class BasketCreateView(EdxOrderPlacementMixin, generics.CreateAPIView):
 
             requested_products = request.data.get('products')
             if requested_products:
-                is_multi_product_basket = True if len(requested_products) > 1 else False
+                is_multi_product_basket = len(requested_products) > 1
                 for requested_product in requested_products:
                     # Ensure the requested products exist
                     sku = requested_product.get('sku')
@@ -169,7 +168,7 @@ class BasketCreateView(EdxOrderPlacementMixin, generics.CreateAPIView):
                             product = data_api.get_product(sku)
                         except api_exceptions.ProductNotFoundError as error:
                             return self._report_bad_request(
-                                six.text_type(error),
+                                str(error),
                                 api_exceptions.PRODUCT_NOT_FOUND_USER_MESSAGE
                             )
                     else:
@@ -211,7 +210,7 @@ class BasketCreateView(EdxOrderPlacementMixin, generics.CreateAPIView):
                     payment_processor = get_processor_class_by_name(payment_processor_name)
                 except payment_exceptions.ProcessorNotFoundError as error:
                     return self._report_bad_request(
-                        six.text_type(error),
+                        str(error),
                         payment_exceptions.PROCESSOR_NOT_FOUND_USER_MESSAGE
                     )
             else:
@@ -222,7 +221,7 @@ class BasketCreateView(EdxOrderPlacementMixin, generics.CreateAPIView):
             except Exception as ex:  # pylint: disable=broad-except
                 basket.delete()
                 logger.exception('Failed to initiate checkout for Basket [%d]. The basket has been deleted.', basket_id)
-                return Response({'developer_message': six.text_type(ex)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                return Response({'developer_message': str(ex)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         else:
             # Return a serialized basket, if checkout was not requested.
             response_data = self._generate_basic_response(basket)
@@ -381,6 +380,7 @@ class BasketCalculateView(generics.GenericAPIView):
             with transaction.atomic():
                 basket = Basket(owner=user, site=request.site)
                 basket.strategy = Selector().strategy(user=user, request=request)
+                bundle_id = request.GET.get('bundle')
 
                 for product in products:
                     basket.add_product(product, 1)
@@ -389,7 +389,7 @@ class BasketCalculateView(generics.GenericAPIView):
                     basket.vouchers.add(voucher)
 
                 # Calculate any discounts on the basket.
-                Applicator().apply(basket, user=user, request=request)
+                Applicator().apply(basket, user=user, request=request, bundle_id=bundle_id)
 
                 discounts = []
                 if basket.offer_discounts:
@@ -398,8 +398,8 @@ class BasketCalculateView(generics.GenericAPIView):
                     discounts.extend(basket.voucher_discounts)
 
                 response = {
-                    'total_incl_tax_excl_discounts': basket.total_incl_tax_excl_discounts,
-                    'total_incl_tax': basket.total_incl_tax,
+                    'total_incl_tax_excl_discounts': round(basket.total_incl_tax_excl_discounts, 2),
+                    'total_incl_tax': round(basket.total_incl_tax, 2),
                     'currency': basket.currency
                 }
                 raise api_exceptions.TemporaryBasketException
@@ -413,7 +413,7 @@ class BasketCalculateView(generics.GenericAPIView):
             raise
         return response
 
-    def get(self, request):
+    def get(self, request):  # pylint: disable=too-many-statements
         """ Calculate basket totals given a list of sku's
 
         Create a temporary basket add the sku's and apply an optional voucher code.
@@ -465,7 +465,7 @@ class BasketCalculateView(generics.GenericAPIView):
         # validate query parameters
         if requested_username and is_anonymous:
             return HttpResponseBadRequest(_('Provide username or is_anonymous query param, but not both'))
-        elif not requested_username and not is_anonymous:
+        if not requested_username and not is_anonymous:
             logger.warning("Request to Basket Calculate must supply either username or is_anonymous query"
                            " param. Requesting user=%s. Future versions of this API will treat this "
                            "WARNING as an ERROR and raise an exception.", basket_owner.username)
@@ -508,20 +508,22 @@ class BasketCalculateView(generics.GenericAPIView):
             )
 
         cache_key = None
+        bundle_id = request.GET.get('bundle')
         if use_default_basket:
             # For an anonymous user we can directly get the cached price, because
             # there can't be any enrollments or entitlements.
+            # We want bundle_id to be in the cache_key, since calls without bundle_id will produce different results
             cache_key = get_cache_key(
-                site_comain=request.site,
+                site_domain=request.site,
                 resource_name='calculate',
-                skus=skus
+                skus=skus,
+                bundle_id=bundle_id
             )
             cached_response = TieredCache.get_cached_response(cache_key)
             if cached_response.is_found:
                 return Response(cached_response.value)
 
         response = self._calculate_temporary_basket_atomic(basket_owner, request, products, voucher, skus, code)
-
         if response and use_default_basket:
             TieredCache.set_all_tiers(cache_key, response, settings.ANONYMOUS_BASKET_CALCULATE_CACHE_TIMEOUT)
 

@@ -2,12 +2,14 @@ from __future__ import absolute_import
 
 import json
 
+import httpretty
 from django.contrib.auth import get_user_model
 from django.core.management import CommandError, call_command
 from django.urls import reverse
 from oscar.core.loading import get_model
 from rest_framework import status
 
+from ecommerce.coupons.tests.mixins import DiscoveryMockMixin
 from ecommerce.courses.tests.factories import CourseFactory
 from ecommerce.extensions.refund.status import REFUND, REFUND_LINE
 from ecommerce.tests.testcases import TestCase
@@ -18,7 +20,8 @@ Refund = get_model('refund', 'Refund')
 User = get_user_model()
 
 
-class CreateRefundForOrdersTests(TestCase):
+@httpretty.activate
+class CreateRefundForOrdersTests(DiscoveryMockMixin, TestCase):
     """
     Test the `create_refund_for_orders` command.
     """
@@ -38,6 +41,14 @@ class CreateRefundForOrdersTests(TestCase):
             certificate_type='audit',
             id_verification_required=False,
             price=0
+        )
+        self.mock_access_token_response()
+        self.mock_course_run_detail_endpoint(
+            self.course,
+            discovery_api_url=self.site.siteconfiguration.discovery_api_url,
+            course_run_info={
+                'course_uuid': '620a5ce5-6ff4-4b2b-bea1-a273c6920ae5'
+            }
         )
 
     def build_jwt_header(self, user):
@@ -76,6 +87,7 @@ class CreateRefundForOrdersTests(TestCase):
                 {
                     "lms_user_id": 10 + count,
                     "username": "ma{}".format(count),
+                    "mode": "verified",
                     "email": "ma{}@example.com".format(count),
                     "course_run_key": self.course.id,
                     "discount_percentage": discount_percentage

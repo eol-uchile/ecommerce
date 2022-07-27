@@ -1,7 +1,8 @@
 """HTTP endpoints for interacting with vouchers."""
-from __future__ import absolute_import
+
 
 import logging
+from urllib.parse import urlparse
 
 import django_filters
 import pytz
@@ -13,10 +14,9 @@ from opaque_keys.edx.keys import CourseKey
 from oscar.core.loading import get_model
 from requests.exceptions import ConnectionError as ReqConnectionError
 from requests.exceptions import Timeout
-from rest_framework import filters, status
-from rest_framework.decorators import list_route
+from rest_framework import status
+from rest_framework.decorators import action
 from rest_framework.response import Response
-from six.moves.urllib.parse import urlparse
 from slumber.exceptions import SlumberBaseException
 
 from ecommerce.core.constants import DEFAULT_CATALOG_PAGE_SIZE
@@ -35,14 +35,14 @@ StockRecord = get_model('partner', 'StockRecord')
 Voucher = get_model('voucher', 'Voucher')
 
 
-class VoucherFilter(django_filters.FilterSet):
+class VoucherFilter(django_filters.rest_framework.FilterSet):
     """
     Filter for vouchers via query string parameters.
     Currently supports filtering via the voucher's code.
     """
-    code = django_filters.CharFilter(name='code')
+    code = django_filters.CharFilter(field_name='code')
 
-    class Meta(object):
+    class Meta:
         model = Voucher
         fields = ('code',)
 
@@ -51,15 +51,15 @@ class VoucherViewSet(NonDestroyableModelViewSet):
     """ View set for vouchers. """
     serializer_class = serializers.VoucherSerializer
     permission_classes = (IsOffersOrIsAuthenticatedAndStaff,)
-    filter_backends = (filters.DjangoFilterBackend,)
-    filter_class = VoucherFilter
+    filter_backends = (django_filters.rest_framework.DjangoFilterBackend,)
+    filterset_class = VoucherFilter
 
     def get_queryset(self):
         return Voucher.objects.filter(
             coupon_vouchers__coupon__stockrecords__partner=self.request.site.siteconfiguration.partner
         )
 
-    @list_route()
+    @action(detail=False)
     def offers(self, request):
         """ Preview the courses offered by the voucher.
 
@@ -164,11 +164,14 @@ class VoucherViewSet(NonDestroyableModelViewSet):
         multiple_credit_providers = False
         credit_provider_price = None
 
+        logger.info('[Voucher Offers] CourseSeatTypes: [%s], Voucher: [%s]', course_seat_types, voucher.id)
+
         products, stock_records, course_run_metadata = self.retrieve_course_objects(
             response['results'], course_seat_types
         )
         contains_verified_course = ('verified' in course_seat_types)
         for product in products:
+            logger.info('[Voucher Offers] Constructing offer data. Product: [%s]', product.id)
             # Omit unavailable seats from the offer results so that one seat does not cause an
             # error message for every seat in the query result.
             if not request.strategy.fetch_for_product(product).availability.is_available_to_buy:
@@ -177,11 +180,12 @@ class VoucherViewSet(NonDestroyableModelViewSet):
 
             course_id = product.course_id
             course_catalog_data = course_run_metadata[course_id]
-            if course_seat_types == 'credit':
+            if course_seat_types == 'credit' or product.attr.certificate_type == 'credit':
+                logger.info('[Voucher Offers] Constructing offer data for credit.')
                 # Omit credit seats for which the user is not eligible or which the user already bought.
                 if not request.user.is_eligible_for_credit(product.course_id, request.site.siteconfiguration):
                     continue
-                elif Order.objects.filter(user=request.user, lines__product=product).exists():
+                if Order.objects.filter(user=request.user, lines__product=product).exists():
                     continue
                 credit_seats = Product.objects.filter(parent=product.parent, attributes__name='credit_provider')
 

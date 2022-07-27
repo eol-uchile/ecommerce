@@ -1,7 +1,4 @@
 """ Creates or updates a Site including Partner and SiteConfiguration data. """
-
-from __future__ import absolute_import, unicode_literals
-
 import logging
 
 from django.contrib.sites.models import Site
@@ -162,7 +159,7 @@ class Command(BaseCommand):
         backend_service_client_secret = options.get('backend_service_client_secret')
         segment_key = options.get('segment_key')
         from_email = options.get('from_email')
-        enable_enrollment_codes = True if options.get('enable_enrollment_codes') else False
+        enable_enrollment_codes = bool(options.get('enable_enrollment_codes'))
         payment_support_email = options.get('payment_support_email', '')
         payment_support_url = options.get('payment_support_url', '')
         base_cookie_domain = options.get('base_cookie_domain', '')

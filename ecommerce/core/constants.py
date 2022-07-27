@@ -1,11 +1,13 @@
 """Constants core to the ecommerce app."""
-from __future__ import unicode_literals
+
 
 ISO_8601_FORMAT = '%Y-%m-%dT%H:%M:%SZ'
 
 # Regex used to match course IDs.
 COURSE_ID_REGEX = r'[^/+]+(/|\+)[^/+]+(/|\+)[^/]+'
 COURSE_ID_PATTERN = r'(?P<course_id>{})'.format(COURSE_ID_REGEX)
+
+UUID_REGEX_PATTERN = r'[0-9a-fA-F]{8}-?[0-9a-fA-F]{4}-?4[0-9a-fA-F]{3}-?[89abAB][0-9a-fA-F]{3}-?[0-9a-fA-F]{12}'
 
 # Seat constants
 SEAT_PRODUCT_CLASS_NAME = 'Seat'
@@ -63,13 +65,13 @@ ALLOW_MISSING_LMS_USER_ID = 'allow_missing_lms_user_id'
 HUBSPOT_FORMS_INTEGRATION_ENABLE = "hubspot_forms_integration_enable"
 
 
-class Status(object):
+class Status:
     """Health statuses."""
     OK = 'OK'
     UNAVAILABLE = 'UNAVAILABLE'
 
 
-class UnavailabilityMessage(object):
+class UnavailabilityMessage:
     """Messages to be logged when services are unavailable."""
     DATABASE = 'Unable to connect to database'
     LMS = 'Unable to connect to LMS'

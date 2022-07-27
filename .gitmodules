@@ -1,0 +1,9 @@
+[submodule ".github/themes/uabierta"]
+	path = .github/themes/uabierta
+	url = https://github.com/eol-uchile/uabierta-ecommerce-theme
+[submodule ".github/themes/eol"]
+	path = .github/themes/eol-uchile
+	url = https://github.com/eol-uchile/eol-ecommerce-theme
+[submodule ".github/themes/norteamericano"]
+	path = .github/themes/norteamericano
+	url = https://github.com/eol-virtuallabx/norteamericano-ecommerce-theme.git

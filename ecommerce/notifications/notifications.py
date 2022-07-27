@@ -1,4 +1,4 @@
-from __future__ import absolute_import
+
 
 import logging
 
@@ -6,6 +6,7 @@ from oscar.core.loading import get_class, get_model
 from premailer import transform
 
 from ecommerce.extensions.analytics.utils import parse_tracking_context
+from ecommerce.theming.models import SiteTheme
 
 log = logging.getLogger(__name__)
 CommunicationEventType = get_model('customer', 'CommunicationEventType')
@@ -28,11 +29,17 @@ def send_notification(user, commtype_code, context, site, recipient=None):
     tracking_pixel = 'https://www.google-analytics.com/collect?v=1&t=event&ec=email&ea=open&tid={tracking_id}' \
                      '&cid={client_id}&uip={ip}'.format(tracking_id=tracking_id, client_id=client_id, ip=ip)
     full_name = user.get_full_name()
+
+    siteTheme = SiteTheme.objects.get(site=site)
+
     context.update({
         'full_name': full_name,
         'site_domain': site.domain,
         'platform_name': site.name,
         'tracking_pixel': tracking_pixel,
+        'site_lms': site.siteconfiguration.lms_url_root,
+        'site_dashboard': site.siteconfiguration.lms_url_root+"/dashboard",
+        'theme_logo': "https://{}/static/{}/images/default_logo.png".format(site.domain,siteTheme.theme_dir_name),
     })
 
     try:

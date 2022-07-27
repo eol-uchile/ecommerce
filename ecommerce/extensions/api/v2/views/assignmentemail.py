@@ -1,5 +1,5 @@
 """API endpoint for sending assignment emails to Learners"""
-from __future__ import absolute_import
+
 
 import logging
 
@@ -12,6 +12,7 @@ from rest_framework.views import APIView
 from sailthru.sailthru_client import SailthruClient
 
 from ecommerce.extensions.api.permissions import IsStaffOrOwner
+from ecommerce.extensions.api.throttles import ServiceUserThrottle
 from ecommerce.extensions.offer.constants import (
     OFFER_ASSIGNED,
     OFFER_ASSIGNMENT_EMAIL_BOUNCED,
@@ -22,7 +23,7 @@ from ecommerce.extensions.offer.models import OfferAssignment, OfferAssignmentEm
 logger = logging.getLogger(__name__)
 
 
-class OfferAssignmentEmailStatus(object):
+class OfferAssignmentEmailStatus:
     """
     Offer assignment email status enumeration
     """
@@ -37,6 +38,7 @@ class AssignmentEmailStatus(APIView):
     in OfferAssignment and OfferAssignmentEmailAttempt model.
     """
     permission_classes = (IsAuthenticated, IsStaffOrOwner,)
+    throttle_classes = (ServiceUserThrottle,)
 
     def update_email_status(self, offer_assignment_id, send_id):
         """Update the OfferAssignment and OfferAssignmentEmailAttempt model"""

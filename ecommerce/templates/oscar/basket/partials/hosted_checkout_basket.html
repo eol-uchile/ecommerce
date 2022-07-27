@@ -6,7 +6,7 @@
 {% load widget_tweaks %}
 
 {% if not is_bulk_purchase %}
-    {% include 'partials/alert_messages.html' %}
+    {% include 'oscar/partials/alert_messages.html' %}
 {% endif %}
 
 <div id="content-inner">
@@ -32,7 +32,7 @@
                         <div class="col-md-5 col-sm-12">
                             <p class="product-title">{{ line_data.product_title }} {% if line_data.course_key %}- {{ line_data.course_key.org }}
                                 ({{ line_data.course_key.run }}) {% endif %}</p>
-                            <p class="product-description">{{ line_data.product_description }}</p>
+                            <p class="product-description">{{ line_data.product_description|default_if_none:'' }}</p>
                         </div>
                         {% if line_data.enrollment_code %}
                             <div class="col-md-1 col-xs-12">
@@ -115,7 +115,7 @@
                                 <p id="voucher_form_link">
                                     <a href="#voucher">{% trans "Apply a coupon code" as tmsg %}{{ tmsg | force_escape }}</a>
                                 </p>
-                                {% include 'basket/partials/add_voucher_form.html' %}
+                                {% include 'oscar/basket/partials/add_voucher_form.html' %}
                             </div>
                         {% endif %}
                     {% endif %}
@@ -162,6 +162,8 @@
                                 id="{{ processor.NAME|lower }}">
                             {% if processor.NAME == 'cybersource' %}
                                 {% trans "Checkout" as tmsg %}{{ tmsg | force_escape }}
+                            {% elif processor.NAME == 'webpay' %}
+                                Pagar con WebPay
                             {% elif processor.NAME == 'paypal' %}
                                 {# Translators: Do NOT translate the name PayPal. #}
                                 {% trans "Checkout with PayPal" as tmsg %}{{ tmsg | force_escape }}

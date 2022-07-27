@@ -1,14 +1,16 @@
 # -*- coding: utf-8 -*-
 """Unit tests of Paypal payment processor implementation."""
-from __future__ import absolute_import, unicode_literals
+
 
 import json
 import logging
+from urllib.parse import urljoin
 
 import ddt
 import mock
 import paypalrestsdk
 import responses
+from datetime import timedelta
 from django.conf import settings
 from django.test import RequestFactory
 from django.urls import reverse
@@ -17,14 +19,13 @@ from factory.fuzzy import FuzzyInteger
 from oscar.apps.payment.exceptions import GatewayError
 from oscar.core.loading import get_model
 from paypalrestsdk.resource import Resource  # pylint:disable=ungrouped-imports
-from six.moves.urllib.parse import urljoin  # pylint: disable=import-error
 from testfixtures import LogCapture
 
 from ecommerce.core.tests import toggle_switch
 from ecommerce.extensions.checkout.utils import get_receipt_page_url
-from ecommerce.extensions.payment.models import PaypalWebProfile
+from ecommerce.extensions.payment.models import PaypalWebProfile, PaypalUSDConversion, UserBillingInfo
 from ecommerce.extensions.payment.processors.paypal import Paypal
-from ecommerce.extensions.payment.tests.mixins import PaypalMixin
+from ecommerce.extensions.payment.tests.mixins import PaypalMixin, BoletaMixin
 from ecommerce.extensions.payment.tests.processors.mixins import PaymentProcessorTestCaseMixin
 from ecommerce.tests.testcases import TestCase
 
@@ -36,7 +37,7 @@ SourceType = get_model('payment', 'SourceType')
 
 
 @ddt.ddt
-class PaypalTests(PaypalMixin, PaymentProcessorTestCaseMixin, TestCase):
+class PaypalTests(BoletaMixin, PaypalMixin, PaymentProcessorTestCaseMixin, TestCase):
     """Tests for the PayPal payment processor."""
     ERROR = {'debug_id': 'foo'}
 
@@ -68,11 +69,15 @@ class PaypalTests(PaypalMixin, PaymentProcessorTestCaseMixin, TestCase):
 
         # Dummy request from which an HTTP Host header can be extracted during
         # construction of absolute URLs
-        self.request = RequestFactory().post('/')
+        #self.request = RequestFactory().post('/')
         self.processor_response_log = (
             u"Failed to execute PayPal payment on attempt [{attempt_count}]. "
             u"PayPal's response was recorded in entry [{entry_id}]."
         )
+        self.request.data = self.BILLING_INFO_FORM
+        conversion = PaypalUSDConversion(clp_to_usd=750)
+        conversion.save()
+
 
     def _assert_transaction_parameters(self):
         """DRY helper for verifying transaction parameters."""
@@ -127,6 +132,24 @@ class PaypalTests(PaypalMixin, PaymentProcessorTestCaseMixin, TestCase):
                     )
                 )
 
+    @ddt.unpack
+    @ddt.data(
+        [10.00,7500,750],
+        [10.27,7500,730],
+        [9.26,7500,810],
+        [13.33,10000,750],
+        [13.70,10000,730],
+        [12.35,10000,810],
+        [0.67,500,750],
+        [0.68,500,730],
+    )
+    def test_parse_CLP_to_USD(self, expected, given, rate):
+        # We also tests that the original is overriden
+        current_date = PaypalUSDConversion.objects.first().creation_date
+        conversion = PaypalUSDConversion(creation_date=current_date + timedelta(days=1),clp_to_usd=rate)
+        conversion.save()
+        self.assertEqual(expected, float(self.processor.parseCLPtoUSD(given)))
+
     @responses.activate
     def test_get_transaction_parameters(self):
         """Verify the processor returns the appropriate parameters required to complete a transaction."""
@@ -141,10 +164,40 @@ class PaypalTests(PaypalMixin, PaymentProcessorTestCaseMixin, TestCase):
         self.assertEqual(last_request_body['redirect_urls']['return_url'], expected)
 
     @responses.activate
+    def test_get_transaction_parameters_fail_rut(self):
+        self.mock_oauth2_response()
+        response = self.mock_payment_creation_response(self.basket)
+
+        self._assert_transaction_parameters()
+
+        # Append data instead of creating new request
+        self.request.data = self.BILLING_INFO_FORM.copy()
+        self.request.data["id_number"] = "13"
+
+        self.assertRaises(Exception, self.processor.get_transaction_parameters,
+                          self.basket, self.request)
+    @responses.activate
+    def test_get_transaction_parameters_change_billing_info_processor(self):
+        # Create old version with another payment method
+        # This scenario hopefully never happens
+        self.make_billing_info_helper("0","CL",self.basket)
+
+        self.mock_oauth2_response()
+        response = self.mock_payment_creation_response(self.basket)
+
+        self._assert_transaction_parameters()
+        self.assert_processor_response_recorded(self.processor.NAME, self.PAYMENT_ID, response, basket=self.basket)
+
+        last_request_body = json.loads(responses.calls[-1].request.body)
+        expected = urljoin(self.site.siteconfiguration.build_ecommerce_url(), reverse('paypal:execute'))
+        self.assertEqual(last_request_body['redirect_urls']['return_url'], expected)
+
+    @responses.activate
     def test_get_courseid_title(self):
         for line in self.basket.all_lines():
             self.assertEqual(
-                'a/b/c|Seat in Demo Course with test-certificate-type certificate',
+                #'a/b/c|Seat in Demo Course with test-certificate-type certificate',
+                'a/b/c|Inscripción en Demo Course con certificado test-certificate-type',
                 self.processor.get_courseid_title(line)
             )
 
@@ -480,8 +533,9 @@ class PaypalTests(PaypalMixin, PaymentProcessorTestCaseMixin, TestCase):
 
     def test_issue_credit(self):
         """
-        Tests issuing credit with Paypal processor
+        Tests issuing credit/refund with Paypal processor
         """
+        toggle_switch('paypal_allow_refunds', True)
         refund = self.create_refund(self.processor_name)
         order = refund.order
         basket = order.basket
@@ -508,8 +562,9 @@ class PaypalTests(PaypalMixin, PaymentProcessorTestCaseMixin, TestCase):
 
     def test_issue_credit_error(self):
         """
-        Tests issue credit fails in case of erroneous response or exceptions
+        Tests issue credit/refund fails in case of erroneous response or exceptions
         """
+        toggle_switch('paypal_allow_refunds', True)
         refund = self.create_refund(self.processor_name)
         order = refund.order
         basket = order.basket
@@ -542,6 +597,10 @@ class PaypalTests(PaypalMixin, PaymentProcessorTestCaseMixin, TestCase):
 
         # Verify PaymentProcessorResponse created
         self.assert_processor_response_recorded(self.processor.NAME, transaction_id, expected_response, basket)
+
+    def test_issue_credit_disabled(self):
+        # Dummy args since it is disabled
+        self.assertRaises(NotImplementedError, self.processor.issue_credit, 1, 1, 1, 0, 'USD')
 
     def assert_processor_multiple_response_recorded(self):
         """ Ensures a multiple PaymentProcessorResponse can store in db for the

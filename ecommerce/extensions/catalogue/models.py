@@ -1,6 +1,5 @@
-from __future__ import absolute_import
 
-import six
+
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
 from django.db import models
@@ -89,7 +88,7 @@ class Product(AbstractProduct):
 
     def save(self, *args, **kwargs):
         try:
-            if not isinstance(self.attr.note, six.string_types) and self.attr.note is not None:
+            if not isinstance(self.attr.note, str) and self.attr.note is not None:
                 log_message_and_raise_validation_error(
                     'Failed to create Product. Product note value must be of type string'
                 )
@@ -150,7 +149,7 @@ class Catalog(models.Model):
     partner = models.ForeignKey('partner.Partner', related_name='catalogs', on_delete=models.CASCADE)
     stock_records = models.ManyToManyField('partner.StockRecord', blank=True, related_name='catalogs')
 
-    def __unicode__(self):
+    def __str__(self):
         return u'{id}: {partner_code}-{catalog_name}'.format(
             id=self.id,
             partner_code=self.partner.short_code,

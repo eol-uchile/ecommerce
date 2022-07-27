@@ -5,15 +5,12 @@ Note:
     This middleware depends on "django_sites_extensions.middleware.CurrentSiteWithDefaultMiddleware" middleware
     So it must be added after this middleware in django settings files.
 """
-
-from __future__ import absolute_import
-
 from django.utils.deprecation import MiddlewareMixin
 
 from ecommerce.theming.models import SiteTheme
 
 
-class CurrentSiteThemeMiddleware(MiddlewareMixin, object):
+class CurrentSiteThemeMiddleware(MiddlewareMixin):
     """
     Middleware that sets `site_theme` attribute to request object.
     """
@@ -22,7 +19,7 @@ class CurrentSiteThemeMiddleware(MiddlewareMixin, object):
         request.site_theme = SiteTheme.get_theme(request.site)
 
 
-class ThemePreviewMiddleware(MiddlewareMixin, object):
+class ThemePreviewMiddleware(MiddlewareMixin):
     """
     Middleware for previewing themes. This middleware should be added after
     CurrentSiteThemeMiddleware and SessionMiddleware.

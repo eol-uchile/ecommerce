@@ -1,16 +1,15 @@
 """Production settings and globals."""
-from __future__ import absolute_import
+
 
 import codecs
 from os import environ
+from urllib.parse import urljoin
 
-import six
 import yaml
 from corsheaders.defaults import default_headers as corsheaders_default_headers
 # Normally you should not import ANYTHING from Django directly
 # into your settings, but ImproperlyConfigured is an exception.
 from django.core.exceptions import ImproperlyConfigured
-from six.moves.urllib.parse import urljoin
 
 from ecommerce.settings.base import *
 
@@ -77,7 +76,7 @@ DB_OVERRIDES = dict(
     PORT=environ.get('DB_MIGRATION_PORT', DATABASES['default']['PORT']),
 )
 
-for override, value in six.iteritems(DB_OVERRIDES):
+for override, value in DB_OVERRIDES.items():
     DATABASES['default'][override] = value
 
 for key, value in LOGGING_ROOT_OVERRIDES.items():
@@ -97,10 +96,11 @@ for section, overrides in LOGGING_SUBSECTION_OVERRIDES.items():
                 LOGGING[section][key] = value
 
 
+OSCAR_DEFAULT_CURRENCY = environ.get('OSCAR_DEFAULT_CURRENCY', OSCAR_DEFAULT_CURRENCY)
 
 # PAYMENT PROCESSOR OVERRIDES
-for __, configs in six.iteritems(PAYMENT_PROCESSOR_CONFIG):
-    for __, config in six.iteritems(configs):
+for __, configs in PAYMENT_PROCESSOR_CONFIG.items():
+    for __, config in configs.items():
         config.update({
             'receipt_path': PAYMENT_PROCESSOR_RECEIPT_PATH,
             'cancel_checkout_path': PAYMENT_PROCESSOR_CANCEL_PATH,
@@ -109,6 +109,8 @@ for __, configs in six.iteritems(PAYMENT_PROCESSOR_CONFIG):
 # END PAYMENT PROCESSOR OVERRIDES
 
 ENTERPRISE_API_URL = urljoin(ENTERPRISE_SERVICE_URL, 'api/v1/')
+
+ENTERPRISE_CATALOG_API_URL = urljoin(ENTERPRISE_CATALOG_SERVICE_URL, 'api/v1/')
 
 CORS_ALLOW_HEADERS = corsheaders_default_headers + (
     'use-jwt-cookie',

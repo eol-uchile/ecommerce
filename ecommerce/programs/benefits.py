@@ -1,4 +1,4 @@
-from __future__ import absolute_import
+
 
 from django.utils.translation import ugettext_lazy as _
 from oscar.apps.offer.benefits import AbsoluteDiscountBenefit, PercentageDiscountBenefit
@@ -18,7 +18,7 @@ class PercentageDiscountBenefitWithoutRange(BenefitWithoutRangeMixin, Percentage
     a conditional offer is applicable to a basket.
     """
 
-    class Meta(object):
+    class Meta:
         app_label = 'programs'
         proxy = True
 
@@ -35,7 +35,7 @@ class AbsoluteDiscountBenefitWithoutRange(BenefitWithoutRangeMixin, AbsoluteBene
        a conditional offer is applicable to a basket.
        """
 
-    class Meta(object):
+    class Meta:
         app_label = 'programs'
         proxy = True
 

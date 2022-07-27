@@ -4,8 +4,6 @@
 #
 #    make upgrade
 #
-click==7.0                # via pip-tools
-pip-tools==4.3.0
-pytz==2016.10
-six==1.11.0
-urllib3==1.23
+click==7.1.2              # via pip-tools
+pip-tools==4.5.1          # via -c requirements/pins.txt, -r requirements/pip_tools.in
+six==1.15.0               # via pip-tools

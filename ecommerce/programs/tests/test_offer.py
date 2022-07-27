@@ -1,4 +1,4 @@
-from __future__ import absolute_import
+
 
 from decimal import Decimal
 
@@ -50,7 +50,7 @@ class ProgramOfferTests(LmsApiMockMixin, ProgramTestMixin, TestCase):
 
         # Apply the offers as Oscar will in a request
         basket.strategy = DefaultStrategy()
-        Applicator().apply(basket, basket.owner)
+        Applicator().apply(basket, basket.owner, bundle_id=program_uuid)
 
         # Our discount should be applied, and each line should have a price of 0
         lines = basket.all_lines()

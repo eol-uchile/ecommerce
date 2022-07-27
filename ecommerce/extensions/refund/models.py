@@ -1,8 +1,7 @@
-from __future__ import absolute_import, unicode_literals
+
 
 import logging
 
-import six
 from django.conf import settings
 from django.db import models
 from django.utils.translation import ugettext_lazy as _
@@ -29,7 +28,7 @@ PaymentEventType = get_model('order', 'PaymentEventType')
 post_refund = get_class('refund.signals', 'post_refund')
 
 
-class StatusMixin(object):
+class StatusMixin:
     pipeline_setting = None
 
     @property
@@ -61,7 +60,7 @@ class StatusMixin(object):
         self.save()
 
     def __str__(self):
-        return six.text_type(self.id)
+        return str(self.id)
 
 
 class Refund(StatusMixin, TimeStampedModel):
@@ -163,7 +162,7 @@ class Refund(StatusMixin, TimeStampedModel):
         return self.status == settings.OSCAR_INITIAL_REFUND_STATUS
 
     def _issue_credit(self):
-        """Issue a credit to the purchaser via the payment processor used for the original order."""
+        """Issue a credit/refund to the purchaser via the payment processor used for the original order."""
         try:
             # NOTE: Update this if we ever support multiple payment sources for a single order.
             source = self.order.sources.first()
@@ -243,10 +242,10 @@ class Refund(StatusMixin, TimeStampedModel):
         if self.status == REFUND.COMPLETE:
             logger.info('Refund [%d] has already been completed. No additional action is required to approve.', self.id)
             return True
-        elif not self.can_approve:
+        if not self.can_approve:
             logger.warning('Refund [%d] has status set to [%s] and cannot be approved.', self.id, self.status)
             return False
-        elif self.status in (REFUND.OPEN, REFUND.PAYMENT_REFUND_ERROR):
+        if self.status in (REFUND.OPEN, REFUND.PAYMENT_REFUND_ERROR):
             try:
                 self._issue_credit()
                 self.set_status(REFUND.PAYMENT_REFUNDED)

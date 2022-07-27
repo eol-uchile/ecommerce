@@ -1,0 +1,16 @@
+{% load i18n %}
+{% trans "Receipt Confirmation for: " %}{{course_title}}
+
+{% blocktrans %}Hola {{full_name}},{% endblocktrans %}
+
+{% blocktrans with course_title=course_title %}Su boleta para el curso "{{course_title}}" ya está disponible.{% endblocktrans %}
+
+{% blocktrans with platform_name=site_dashboard %}Si no ha completado su verificación (de ser requerida) puede hacerlo en {{platform_name}}. {% endblocktrans %}
+
+{% trans "Para ver su boleta e información de pago, visite el sitio siguiente." %}
+{{receipt_page_url}}
+
+{% trans "Gracias, ¡Esperamos que disfrute del curso!" %}
+
+{% blocktrans %}Equipo de {{platform_name}}{% endblocktrans %}
+

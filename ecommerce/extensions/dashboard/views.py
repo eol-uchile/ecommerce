@@ -1,6 +1,5 @@
-from __future__ import absolute_import
 
-import six
+
 from oscar.apps.dashboard.views import *  # pylint: disable=wildcard-import, unused-wildcard-import
 
 
@@ -34,7 +33,7 @@ class ExtendedIndexView(IndexView):
                 Sum('total_incl_tax')
             )['total_incl_tax__sum'] or D('0.00'),
 
-            'hourly_report_dict': self.get_hourly_report(hours=24),
+            'hourly_report_dict': self.get_hourly_report(orders_last_day, hours=24),
             'total_customers_last_day': User.objects.filter(
                 date_joined__gt=datetime_24hrs_ago,
             ).count(),
@@ -47,7 +46,7 @@ class ExtendedIndexView(IndexView):
         return stats
 
 
-class FilterFieldsMixin(object):
+class FilterFieldsMixin:
     def get_filter_fields(self):
         """ Returns a dictionary of fields with custom filters. """
         return {
@@ -63,7 +62,7 @@ class FilterFieldsMixin(object):
 
     def exposed_fields(self):
         """ Returns the dictionary of fields that will be immediately exposed to the user in the UI. """
-        return {field: details for (field, details) in six.iteritems(self.get_filter_fields()) if details['exposed']}
+        return {field: details for (field, details) in self.get_filter_fields().items() if details['exposed']}
 
     def get_context_data(self, **kwargs):
         context = super(FilterFieldsMixin, self).get_context_data(**kwargs)

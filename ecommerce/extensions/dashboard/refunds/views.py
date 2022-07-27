@@ -1,6 +1,5 @@
-from __future__ import absolute_import
 
-import six
+
 from django.views.generic import DetailView, ListView
 from oscar.core.loading import get_class, get_model
 from oscar.views import sort_queryset
@@ -15,7 +14,7 @@ class RefundListView(FilterFieldsMixin, ListView):
     """ Dashboard view to list refunds. """
     model = Refund
     context_object_name = 'refunds'
-    template_name = 'dashboard/refunds/refund_list.html'
+    template_name = 'oscar/dashboard/refunds/refund_list.html'
     paginate_by = 25
     form_class = RefundSearchForm
     form = None
@@ -37,7 +36,7 @@ class RefundListView(FilterFieldsMixin, ListView):
 
         self.form = self.form_class(self.request.GET)
         if self.form.is_valid():
-            for field, value in six.iteritems(self.form.cleaned_data):
+            for field, value in self.form.cleaned_data.items():
                 if value:
                     # Check if the field has a custom query filter setup.
                     # If not, use a standard Django equals/match filter.
@@ -55,4 +54,4 @@ class RefundListView(FilterFieldsMixin, ListView):
 class RefundDetailView(DetailView):
     model = Refund
     context_object_name = 'refund'
-    template_name = 'dashboard/refunds/refund_detail.html'
+    template_name = 'oscar/dashboard/refunds/refund_detail.html'

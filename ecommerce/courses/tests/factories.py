@@ -1,4 +1,4 @@
-from __future__ import absolute_import, unicode_literals
+
 
 import factory
 from factory.fuzzy import FuzzyText
@@ -7,7 +7,7 @@ from ecommerce.courses.models import Course
 
 
 class CourseFactory(factory.DjangoModelFactory):
-    class Meta(object):
+    class Meta:
         model = Course
 
     id = FuzzyText(prefix='course-v1:test-org+course+')

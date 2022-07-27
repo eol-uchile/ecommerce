@@ -1,10 +1,8 @@
-from __future__ import absolute_import
-
 import datetime
 import hashlib
 import logging
+from urllib.parse import urljoin, urlsplit
 
-import six  # pylint: disable=ungrouped-imports
 import waffle
 from analytics import Client as SegmentClient
 from dateutil.parser import parse
@@ -24,7 +22,6 @@ from jsonfield.fields import JSONField
 from requests.exceptions import ConnectionError as ReqConnectionError
 from requests.exceptions import Timeout
 from simple_history.models import HistoricalRecords
-from six.moves.urllib.parse import urljoin, urlsplit
 from slumber.exceptions import HttpNotFoundError, SlumberBaseException
 
 from ecommerce.core.constants import ALL_ACCESS_CONTEXT, ALLOW_MISSING_LMS_USER_ID
@@ -245,7 +242,7 @@ class SiteConfiguration(models.Model):
                     self.site.id,
                     name
                 )
-                raise ValidationError(six.text_type(exc))
+                raise ValidationError(str(exc))
 
     def _clean_client_side_payment_processor(self):
         """
@@ -376,6 +373,11 @@ class SiteConfiguration(models.Model):
         return settings.ENTERPRISE_API_URL
 
     @property
+    def enterprise_catalog_api_url(self):
+        """ Returns the URL for the Enterprise Catalog service. """
+        return settings.ENTERPRISE_CATALOG_API_URL
+
+    @property
     def enterprise_grant_data_sharing_url(self):
         """ Returns the URL for the Enterprise data sharing permission view. """
         return self.build_enterprise_service_url('grant_data_sharing_permissions')
@@ -445,6 +447,20 @@ class SiteConfiguration(models.Model):
         return EdxRestApiClient(self.enterprise_api_url, jwt=self.access_token)
 
     @cached_property
+    def enterprise_catalog_api_client(self):
+        """
+        Returns a REST API client for the provided enterprise catalog service
+
+        Example:
+            site.siteconfiguration.enterprise_catalog_api_client.enterprise-catalog.get()
+
+        Returns:
+            EdxRestApiClient: The client to access the Enterprise Catalog service.
+
+        """
+        return EdxRestApiClient(self.enterprise_catalog_api_url, jwt=self.access_token)
+
+    @cached_property
     def consent_api_client(self):
         return EdxRestApiClient(self.build_lms_url('/consent/api/v1/'), jwt=self.access_token, append_slash=False)
 
@@ -480,6 +496,10 @@ class User(AbstractUser):
     Custom user model for use with python-social-auth via edx-auth-backends.
     """
 
+    # This preserves the 30 character limit on last_name, avoiding a large migration
+    # on the ecommerce_user table that would otherwise have come with Django 2.
+    # See https://docs.djangoproject.com/en/3.0/releases/2.0/#abstractuser-last-name-max-length-increased-to-150
+    last_name = models.CharField(_('last name'), max_length=30, blank=True)
     full_name = models.CharField(_('Full Name'), max_length=255, blank=True, null=True)
     tracking_context = JSONField(blank=True, null=True)
     email = models.EmailField(max_length=254, verbose_name='email address', blank=True, db_index=True)
@@ -489,7 +509,7 @@ class User(AbstractUser):
         help_text=_(u'LMS user id'),
     )
 
-    class Meta(object):
+    class Meta:
         get_latest_by = 'date_joined'
         db_table = 'ecommerce_user'
 
@@ -724,7 +744,7 @@ class User(AbstractUser):
 
 
 class Client(User):
-    pass
+    """ Client Model. """
 
 
 class BusinessClient(models.Model):

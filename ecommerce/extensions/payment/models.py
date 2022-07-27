@@ -1,22 +1,31 @@
-from __future__ import absolute_import, unicode_literals
-
+import logging
+from datetime import datetime
 from decimal import Decimal
 
 from django.core.exceptions import ValidationError
+from django.core.validators import MinLengthValidator
 from django.db import models
+from django.db.transaction import atomic
 from django.utils.encoding import python_2_unicode_compatible
 from django.utils.translation import ugettext_lazy as _
+from django.utils import timezone
 from django_extensions.db.models import TimeStampedModel
 from jsonfield import JSONField
 from oscar.apps.payment.abstract_models import AbstractSource
 from solo.models import SingletonModel
 
+from ecommerce.core.models import User
 from ecommerce.extensions.payment.constants import CARD_TYPE_CHOICES
+from ecommerce.extensions.payment.exceptions import SDNFallbackDataEmptyError
+
+logger = logging.getLogger(__name__)
 
 
 class PaymentProcessorResponse(models.Model):
-    """ Auditing model used to save all responses received from payment processors. """
-
+    """
+    Auditing model used to save all responses received
+    from payment processors, which includes payments and refunds.
+    """
     processor_name = models.CharField(max_length=255, verbose_name=_('Payment Processor'))
     transaction_id = models.CharField(max_length=255, verbose_name=_('Transaction ID'), null=True, blank=True)
     basket = models.ForeignKey('basket.Basket', verbose_name=_('Basket'), null=True, blank=True,
@@ -24,7 +33,7 @@ class PaymentProcessorResponse(models.Model):
     response = JSONField()
     created = models.DateTimeField(auto_now_add=True, db_index=True)
 
-    class Meta(object):
+    class Meta:
         get_latest_by = 'created'
         index_together = ('processor_name', 'transaction_id')
         verbose_name = _('Payment Processor Response')
@@ -49,7 +58,7 @@ class PaypalProcessorConfiguration(SingletonModel):
         )
     )
 
-    class Meta(object):
+    class Meta:
         verbose_name = "Paypal Processor Configuration"
 
 
@@ -69,7 +78,7 @@ class SDNCheckFailure(TimeStampedModel):
             username=self.username
         )
 
-    class Meta(object):
+    class Meta:
         verbose_name = 'SDN Check Failure'
 
 
@@ -122,5 +131,260 @@ class EnterpriseContractMetadata(TimeStampedModel):
             ))
 
 
+class SDNFallbackMetadata(TimeStampedModel):
+    """
+    Record metadata about the SDN fallback CSV file download, as detailed in docs/decisions/0007-sdn-fallback.rst
+    and JIRA ticket REV-1278. This table is used to track the state of the SDN csv file data that are currently
+    being used or about to be updated/deprecated. This table does not keep track of the SDN files over time.
+    """
+    file_checksum = models.CharField(max_length=255, validators=[MinLengthValidator(1)])
+    download_timestamp = models.DateTimeField()
+    import_timestamp = models.DateTimeField(null=True, blank=True)
+
+    IMPORT_STATES = [
+        ('New', 'New'),
+        ('Current', 'Current'),
+        ('Discard', 'Discard'),
+    ]
+
+    import_state = models.CharField(
+        max_length=255,
+        validators=[MinLengthValidator(1)],
+        unique=True,
+        choices=IMPORT_STATES,
+        default='New',
+    )
+
+    @classmethod
+    def insert_new_sdn_fallback_metadata_entry(cls, file_checksum):
+        """
+        Insert a new SDNFallbackMetadata entry if the new csv differs from the current one
+        If there is no current metadata entry, create a new one and log a warning
+
+        Args:
+            file_checksum (str): Hash of the csv content
+
+        Returns:
+            sdn_fallback_metadata_entry (SDNFallbackMetadata): Instance of the current SDNFallbackMetadata class
+            or None if none exists
+        """
+        now = datetime.utcnow()
+        try:
+            if file_checksum == SDNFallbackMetadata.objects.get(import_state='Current').file_checksum:
+                logger.info("SDNFallback: The CSV file has not changed, so skipping import. The file_checksum was %s",
+                            file_checksum)
+                # Update download timestamp even though we're not importing this list
+                SDNFallbackMetadata.objects.filter(import_state="New").update(download_timestamp=now)
+                return None
+        except SDNFallbackMetadata.DoesNotExist:
+            logger.warning("SDNFallback: SDNFallbackMetadata has no record with import_state Current")
+
+        sdn_fallback_metadata_entry = SDNFallbackMetadata.objects.create(
+            file_checksum=file_checksum,
+            download_timestamp=now,
+        )
+        return sdn_fallback_metadata_entry
+
+    @classmethod
+    @atomic
+    def swap_all_states(cls):
+        """
+        Shifts all of the existing metadata table rows to the next import_state
+        in the row's lifecycle (see _swap_state).
+
+        This method is done in a transaction to gurantee that existing metadata rows are
+        shifted into their next states in sync and tries to ensure that there is always a row
+        in the 'Current' state. Rollbacks of all row's import_state changes will happen if:
+        1) There are multiple rows & none of them are 'Current', or
+        2) There are any issues with the existing rows + updating them (e.g. a row with a
+        duplicate import_state is manually inserted into the table during the transaction)
+        """
+        SDNFallbackMetadata._swap_state('Discard')
+        SDNFallbackMetadata._swap_state('Current')
+        SDNFallbackMetadata._swap_state('New')
+
+        # After the above swaps happen:
+        # If there are 0 rows in the table, there cannot be a row in the 'Current' status.
+        # If there is 1 row in the table, it is expected to be in the 'Current' status
+        # (e.g. when the first file is added + just swapped).
+        # If there are 2 rows in the table, after the swaps, we expect to have one row in
+        # the 'Current' status and one row in the 'Discard' status.
+        if len(SDNFallbackMetadata.objects.all()) >= 1:
+            try:
+                SDNFallbackMetadata.objects.get(import_state='Current')
+            except SDNFallbackMetadata.DoesNotExist:
+                logger.warning(
+                    "SDNFallback: Expected a row in the 'Current' import_state after swapping, but there are none.",
+                )
+                raise
+
+    @classmethod
+    def _swap_state(cls, import_state):
+        """
+        Update the row in the given import_state parameter to the next import_state.
+        Rows in this table should progress from New -> Current -> Discard -> (row deleted).
+        There can be at most one row in each import_state at a given time.
+        """
+        try:
+            existing_metadata = SDNFallbackMetadata.objects.get(import_state=import_state)
+            if import_state == 'Discard':
+                existing_metadata.delete()
+            else:
+                if import_state == 'New':
+                    existing_metadata.import_state = 'Current'
+                elif import_state == 'Current':
+                    existing_metadata.import_state = 'Discard'
+                existing_metadata.full_clean()
+                existing_metadata.save()
+        except SDNFallbackMetadata.DoesNotExist:
+            logger.info(
+                "SDNFallback: Cannot update import_state of %s row if there is no row in this state.",
+                import_state
+            )
+
+
+class SDNFallbackData(models.Model):
+    """
+    Model used to record and process one row received from SDNFallbackMetadata.
+
+    Fields:
+    sdn_fallback_metadata (ForeignKey): Foreign Key field with the CSV import Primary Key
+    referenced in SDNFallbackMetadata.
+    source (CharField): Origin of where the data comes from, since the CSV consolidates
+    export screening lists of the Departments of Commerce, State and the Treasury.
+    sdn_type (CharField): For a person with source 'Specially Designated Nationals (SDN)
+    - Treasury Department', the type is 'Individual'. Other options include 'Entity' and 'Vessel'.
+    Other lists do not have a type.
+    names (TextField): A space separated list of all lowercased names and alt names with punctuation
+    also replaced by spaces.
+    addresses (TextField): A space separated list of all lowercased addresses combined into one
+    string. There are records that don't have an address, but because city is a required field
+    in the Payment MFE, those records would not be matched in the API/fallback.
+    countries (CharField): A space separated list of all countries combined into one string.
+    Countries are extracted from the addresses field and in some instances the ID field in their 2 letter
+    abbreviation. There are records that don't have a country, but because country is a required field in
+    the Payment MFE, those records would not be matched in the API/fallback.
+    """
+    sdn_fallback_metadata = models.ForeignKey('payment.SDNFallbackMetadata', on_delete=models.CASCADE)
+    source = models.CharField(default='', max_length=255, db_index=True)
+    sdn_type = models.CharField(default='', max_length=255, db_index=True)
+    names = models.TextField(default='')
+    addresses = models.TextField(default='')
+    countries = models.CharField(default='', max_length=255)
+
+    @classmethod
+    def get_current_records_and_filter_by_source_and_type(cls, source, sdn_type):
+        """
+        Query the records that have 'Current' import state, and filter by source and sdn_type.
+        """
+        try:
+            current_metadata = SDNFallbackMetadata.objects.get(import_state='Current')
+        # The 'get' relies on the manage command having been run. If it fails, tell engineer what's needed
+        except SDNFallbackMetadata.DoesNotExist:
+            logger.warning(
+                "SDNFallbackMetadata is empty! Run this: ./manage.py populate_sdn_fallback_data_and_metadata"
+            )
+            raise SDNFallbackDataEmptyError
+        query_params = {'source': source, 'sdn_fallback_metadata': current_metadata, 'sdn_type': sdn_type}
+        return SDNFallbackData.objects.filter(**query_params)
+
+
 # noinspection PyUnresolvedReferences
 from oscar.apps.payment.models import *  # noqa isort:skip pylint: disable=ungrouped-imports, wildcard-import,unused-wildcard-import,wrong-import-position,wrong-import-order
+
+# =================================
+# EOL Additional models
+# =================================
+
+class BoletaElectronica(models.Model):
+    basket = models.ForeignKey('basket.Basket', verbose_name=_('Basket'),
+                            null=True, blank=True, on_delete=models.CASCADE)
+    # We don't expect ids to grow that much
+    voucher_id = models.CharField(max_length=64)
+    receipt_url = models.CharField(max_length=255)
+    folio = models.CharField(max_length=64, blank=True)
+    emission_date = models.DateTimeField(null=True)
+    amount = models.IntegerField(default=0)
+
+
+    def __str__(self):
+        return "Boleta {} con folio {} por ${}. {}".format(self.voucher_id, self.folio, self.amount, self.emission_date)
+
+class UserBillingInfo(models.Model):
+
+    RUT = '0'
+    PASSPORT = '1'
+    OTRO = '2'
+    ID_TYPES = [
+        (RUT, 'Rut'),
+        (PASSPORT, 'Pasaporte'),
+        (OTRO, 'Otros'),
+    ]
+    basket = models.ForeignKey('basket.Basket', verbose_name=_('Basket'),
+                            null=True, unique=True, on_delete=models.CASCADE)
+
+    billing_country_iso2 = models.CharField(max_length=2)
+    billing_city = models.CharField(max_length=50)
+    billing_district = models.CharField(max_length=50)
+    billing_address = models.CharField(max_length=255)
+
+    boleta = models.ForeignKey(to=BoletaElectronica, on_delete=models.CASCADE,
+                            null=True, default=None)
+
+    first_name = models.CharField(max_length=12)
+    id_number = models.CharField(default="66666666-6", max_length=14)
+    id_option = models.CharField(choices=ID_TYPES,max_length=1,default=RUT)
+    id_other = models.CharField(blank=True,max_length=100)
+    # We can get the user by looking at the owner
+    last_name_1 = models.CharField(max_length=12)
+    last_name_2 = models.CharField(max_length=12,blank=True)
+    payment_processor = models.CharField(max_length=10, default="webpay")
+
+    def __str__(self):
+        return "Información de boleta de {} con {}".format(self.first_name, self.payment_processor)
+
+class PaypalUSDConversion(models.Model):
+    """
+    Rate to convert a products CLP price to USD
+    in order to pay with Paypal
+
+    Paypal will use the most recent rate using the date
+    """
+    class Meta:
+        ordering = ["-creation_date"]
+
+    creation_date = models.DateTimeField(default=timezone.now, editable=False)
+    clp_to_usd = models.IntegerField(default=750, help_text="Rate used at payment to give the correct price to paypal")
+    basket = models.ManyToManyField('basket.Basket', verbose_name=_('Basket'), blank=True)
+
+    def __str__(self):
+        return "Date: {}. 1 USD = {} CLP".format(self.creation_date, self.clp_to_usd)
+
+class BoletaUSDConversion(models.Model):
+    """
+    Rate to convert USD to CLP at boleta emissions
+
+    The most recent rate using the date will be used
+    """
+    class Meta:
+        ordering = ["-creation_date"]
+
+    creation_date = models.DateTimeField(default=timezone.now, editable=False)
+    clp_to_usd = models.DecimalField(default=750, max_digits=6, decimal_places=2, help_text="Rate used at boleta emission to get the correct CLP from the USDs")
+    boleta = models.ManyToManyField(BoletaElectronica, blank=True)
+
+    def __str__(self):
+        return "Date: {}. 1 USD = {} CLP".format(self.creation_date, self.clp_to_usd)
+    
+class BoletaErrorMessage(models.Model):
+    """
+    The messages are processed by other clases and then disposed off.
+    Normally there should be no messages as they would be sent by email.
+    """
+    code = models.PositiveSmallIntegerField(default=0)
+    order_number = models.CharField(max_length=20,default="")
+    content = models.CharField(max_length=255)
+    error_at = models.DateTimeField(default=timezone.now)
+
+    def __str__(self):
+        return "Unsent message with code {}, check the email settings".format(self.code)

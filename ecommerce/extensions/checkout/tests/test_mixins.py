@@ -1,7 +1,7 @@
 """
 Tests for the ecommerce.extensions.checkout.mixins module.
 """
-from __future__ import absolute_import
+
 
 import ddt
 import mock
@@ -26,10 +26,13 @@ from ecommerce.extensions.basket.utils import basket_add_organization_attribute
 from ecommerce.extensions.checkout.exceptions import BasketNotFreeError
 from ecommerce.extensions.checkout.mixins import OFFER_ASSIGNED, OFFER_REDEEMED, EdxOrderPlacementMixin
 from ecommerce.extensions.fulfillment.status import ORDER
+from ecommerce.extensions.offer.constants import DAY3, DAY10, DAY19
 from ecommerce.extensions.payment.tests.mixins import PaymentEventsMixin
 from ecommerce.extensions.payment.tests.processors import DummyProcessor
 from ecommerce.extensions.refund.tests.mixins import RefundTestMixin
 from ecommerce.extensions.test.factories import (
+    CodeAssignmentNudgeEmailsFactory,
+    CodeAssignmentNudgeEmailTemplatesFactory,
     EnterpriseOfferFactory,
     OfferAssignmentFactory,
     VoucherFactory,
@@ -47,6 +50,7 @@ BasketAttribute = get_model('basket', 'BasketAttribute')
 BasketAttributeType = get_model('basket', 'BasketAttributeType')
 NoShippingRequired = get_class('shipping.methods', 'NoShippingRequired')
 OfferAssignment = get_model('offer', 'OfferAssignment')
+CodeAssignmentNudgeEmails = get_model('offer', 'CodeAssignmentNudgeEmails')
 OrderTotalCalculator = get_class('checkout.calculators', 'OrderTotalCalculator')
 PaymentEventType = get_model('order', 'PaymentEventType')
 SourceType = get_model('payment', 'SourceType')
@@ -461,6 +465,58 @@ class EdxOrderPlacementMixinTests(BusinessIntelligenceMixin, PaymentEventsMixin,
         properties = {'checkout_id': basket.order_number}
         calls.append(mock.call(user_tracking_id, 'Payment Info Entered', properties, context=context))
 
+        properties = {
+            'basket_id': basket.id,
+            'total': basket.total_incl_tax,
+            'success': True,
+            'processor_name': DummyProcessor.NAME,
+        }
+        calls.append(mock.call(user_tracking_id, 'Payment Processor Response', properties, context=context))
+
+        mock_track.assert_has_calls(calls)
+
+    @mock.patch.object(DummyProcessor, 'handle_processor_response', mock.Mock(side_effect=Exception))
+    def test_payment_not_accepted_segment_logging(self, mock_track):
+        """
+        Verify if the payment is not accepted, we still log the processor response
+        """
+        tracking_context = {'ga_client_id': 'test-client-id', 'lms_user_id': 'test-user-id', 'lms_ip': '127.0.0.1'}
+        self.user.tracking_context = tracking_context
+        self.user.save()
+
+        basket = create_basket(owner=self.user, site=self.site)
+
+        mixin = EdxOrderPlacementMixin()
+        mixin.payment_processor = DummyProcessor(self.site)
+
+        user_tracking_id, ga_client_id, lms_ip = parse_tracking_context(self.user)
+        context = {
+            'ip': lms_ip,
+            'Google Analytics': {
+                'clientId': ga_client_id
+            },
+            'page': {
+                'url': 'https://testserver.fake/'
+            },
+        }
+        with self.assertRaises(Exception):
+            mixin.handle_payment({}, basket)
+
+        # Verify the correct events are fired to Segment
+        calls = []
+
+        properties = translate_basket_line_for_segment(basket.lines.first())
+        properties['cart_id'] = basket.id
+        calls.append(mock.call(user_tracking_id, 'Product Added', properties, context=context))
+
+        properties = {
+            'basket_id': basket.id,
+            'payment_error': 'Exception',
+            'success': False,
+            'processor_name': DummyProcessor.NAME,
+        }
+        calls.append(mock.call(user_tracking_id, 'Payment Processor Response', properties, context=context))
+
         mock_track.assert_has_calls(calls)
 
     def test_update_assigned_voucher_offer_assignment(self, __):
@@ -476,11 +532,31 @@ class EdxOrderPlacementMixinTests(BusinessIntelligenceMixin, PaymentEventsMixin,
         voucher_application = VoucherApplication.objects.create(voucher=voucher, user=self.user, order=order)
         offer_assignment = OfferAssignmentFactory(offer=enterprise_offer, code=voucher.code, user_email=self.user.email)
 
+        # create nudge email templates and subscription records
+        for email_type in (DAY3, DAY10, DAY19):
+            nudge_email_template = CodeAssignmentNudgeEmailTemplatesFactory(email_type=email_type)
+            nudge_email = CodeAssignmentNudgeEmailsFactory(
+                email_template=nudge_email_template,
+                user_email=self.user.email,
+                code=voucher.code
+            )
+
+            # verify subscription is active
+            assert nudge_email.is_subscribed
+
         EdxOrderPlacementMixin().update_assigned_voucher_offer_assignment(order)
 
         offer_assignment = OfferAssignment.objects.get(id=offer_assignment.id)
         assert offer_assignment.status == OFFER_REDEEMED
         assert offer_assignment.voucher_application == voucher_application
+
+        # verify that nudge emails subscriptions are inactive
+        assert CodeAssignmentNudgeEmails.objects.filter(is_subscribed=True).count() == 0
+        assert CodeAssignmentNudgeEmails.objects.filter(
+            code__in=[voucher.code],
+            user_email__in=[self.user.email],
+            is_subscribed=False
+        ).count() == 3
 
     def test_create_assignments_for_multi_use_per_customer(self, __):
         """

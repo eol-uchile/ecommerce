@@ -1,4 +1,4 @@
-from __future__ import absolute_import
+
 
 import datetime
 import logging
@@ -17,7 +17,7 @@ from e2e.helpers import EcommerceHelpers, LmsHelpers
 log = logging.getLogger(__name__)
 
 
-class TestSeatPayment(object):
+class TestSeatPayment:
     def get_verified_course_run(self):
         """ Returns a course run data dict. """
         return DiscoveryApi().get_course_run('verified')
@@ -33,8 +33,13 @@ class TestSeatPayment(object):
             'unit': address['line2'],
             'city': address['city'],
             'postalCode': address['postal_code'],
-            'cardNumber': '4111111111111111',
-            'securityCode': '123'
+            # 'cardNumber': '4111111111111111',
+            # 'securityCode': '123'
+        }
+
+        flex_microform_information = {
+            'cardNumber': ('number', '4111111111111111'),
+            'securityCode': ('securityCode', '123'),
         }
 
         country = address['country']
@@ -70,6 +75,13 @@ class TestSeatPayment(object):
         # Fill in the text fields
         for field, value in billing_information.items():
             selenium.find_element_by_id(field).send_keys(value)
+
+        for field, (microform_field_name, value) in flex_microform_information.items():
+            selenium.switch_to.frame(
+                selenium.find_element_by_id(field).find_element_by_tag_name('iframe')
+            )
+            selenium.find_element_by_name(microform_field_name).send_keys(value)
+            selenium.switch_to.parent_frame()
 
         # Click the payment button
         selenium.find_element_by_id('placeOrderButton').click()

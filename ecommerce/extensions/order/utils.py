@@ -1,5 +1,5 @@
 """Order Utility Classes. """
-from __future__ import absolute_import, unicode_literals
+
 
 import logging
 
@@ -27,7 +27,7 @@ OrderLine = get_model('order', 'Line')
 RefundLine = get_model('refund', 'RefundLine')
 
 
-class OrderNumberGenerator(object):
+class OrderNumberGenerator:
     OFFSET = 100000
 
     def order_number(self, basket):
@@ -108,7 +108,7 @@ class OrderCreator(OscarOrderCreator):
             order_data['shipping_address'] = shipping_address
         if billing_address:
             order_data['billing_address'] = billing_address
-        if user and user.is_authenticated():
+        if user and user.is_authenticated:
             order_data['user_id'] = user.id
         if status:
             order_data['status'] = status
@@ -129,7 +129,7 @@ class OrderCreator(OscarOrderCreator):
         return order
 
 
-class UserAlreadyPlacedOrder(object):
+class UserAlreadyPlacedOrder:
     """
     Provides utils methods to check if user has already placed an order
     """

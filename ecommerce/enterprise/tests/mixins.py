@@ -1,26 +1,33 @@
-from __future__ import absolute_import
+
 
 import json
+from urllib.parse import urlencode
 from uuid import uuid4
 
 import httpretty
 import requests
 from django.conf import settings
-from six.moves.urllib.parse import urlencode  # pylint: disable=import-error
+from oscar.core.loading import get_model
+from oscar.test import factories
 
+from ecommerce.core.constants import COUPON_PRODUCT_CLASS_NAME
 from ecommerce.courses.tests.factories import CourseFactory
 from ecommerce.extensions.test.factories import (
+    ConditionalOfferFactory,
     EnterpriseCustomerConditionFactory,
     EnterpriseOfferFactory,
     EnterprisePercentageDiscountBenefitFactory
 )
+from ecommerce.extensions.voucher.models import CouponVouchers
+
+ProductClass = get_model('catalogue', 'ProductClass')
 
 
 def raise_timeout(request, uri, headers):  # pylint: disable=unused-argument
     raise requests.Timeout('Connection timed out.')
 
 
-class EnterpriseServiceMockMixin(object):
+class EnterpriseServiceMockMixin:
     """
     Mocks for the Open edX service 'Enterprise Service' responses.
     """
@@ -36,8 +43,13 @@ class EnterpriseServiceMockMixin(object):
     ENTERPRISE_COURSE_ENROLLMENT_URL = '{}enterprise-course-enrollment/'.format(
         settings.ENTERPRISE_API_URL,
     )
-
-    ENTERPRISE_CATALOG_URL = '{}enterprise_catalogs/'.format(
+    ENTERPRISE_CATALOG_URL = '{}enterprise-catalogs/'.format(
+        settings.ENTERPRISE_CATALOG_API_URL
+    )
+    ENTERPRISE_CATALOG_URL_CUSTOMER_RESOURCE = '{}enterprise-customer/'.format(
+        settings.ENTERPRISE_CATALOG_API_URL
+    )
+    LEGACY_ENTERPRISE_CATALOG_URL = '{}enterprise_catalogs/'.format(
         settings.ENTERPRISE_API_URL
     )
 
@@ -71,11 +83,11 @@ class EnterpriseServiceMockMixin(object):
 
     def mock_enterprise_catalog_api_get(self, enterprise_catalog_uuid, custom_response=None):
         """
-        Helper function to register the enterprise catalog API endpoint.
+        Helper function to register the legacy enterprise catalog API endpoint using httpretty.
         """
         enterprise_catalog_api_response = {
             "count": 60,
-            "next": "{}{}/?page=2".format(self.ENTERPRISE_CATALOG_URL, enterprise_catalog_uuid),
+            "next": "{}{}/?page=2".format(self.LEGACY_ENTERPRISE_CATALOG_URL, enterprise_catalog_uuid),
             "previous": None,
             "results": [
                 {
@@ -139,7 +151,7 @@ class EnterpriseServiceMockMixin(object):
         self.mock_access_token_response()
         httpretty.register_uri(
             method=httpretty.GET,
-            uri='{}{}/'.format(self.ENTERPRISE_CATALOG_URL, enterprise_catalog_uuid),
+            uri='{}{}/'.format(self.LEGACY_ENTERPRISE_CATALOG_URL, enterprise_catalog_uuid),
             body=enterprise_catalog_api_body,
             content_type='application/json'
         )
@@ -481,18 +493,23 @@ class EnterpriseServiceMockMixin(object):
             required=False,
         )
 
-    def mock_catalog_contains_course_runs(self, course_run_ids, enterprise_customer_uuid,
-                                          enterprise_customer_catalog_uuid=None, contains_content=True,
-                                          raise_exception=False):
+    def mock_catalog_contains_course_runs(
+            self,
+            course_run_ids,
+            enterprise_customer_uuid,
+            enterprise_customer_catalog_uuid=None,
+            contains_content=True,
+            raise_exception=False
+    ):
         self.mock_access_token_response()
         query_params = urlencode({'course_run_ids': course_run_ids}, True)
         body = raise_timeout if raise_exception else json.dumps({'contains_content_items': contains_content})
         httpretty.register_uri(
             method=httpretty.GET,
-            uri='{}enterprise-customer/{}/contains_content_items/?{}'.format(
-                self.site.siteconfiguration.enterprise_api_url,
-                enterprise_customer_uuid,
-                query_params
+            uri='{api_url}{enterprise_customer_uuid}/contains_content_items/?{query_params}'.format(
+                api_url=self.ENTERPRISE_CATALOG_URL_CUSTOMER_RESOURCE,
+                enterprise_customer_uuid=enterprise_customer_uuid,
+                query_params=query_params
             ),
             body=body,
             content_type='application/json'
@@ -500,10 +517,10 @@ class EnterpriseServiceMockMixin(object):
         if enterprise_customer_catalog_uuid:
             httpretty.register_uri(
                 method=httpretty.GET,
-                uri='{}enterprise_catalogs/{}/contains_content_items/?{}'.format(
-                    self.site.siteconfiguration.enterprise_api_url,
-                    enterprise_customer_catalog_uuid,
-                    query_params
+                uri='{api_url}{customer_catalog_uuid}/contains_content_items/?{query_params}'.format(
+                    api_url=self.ENTERPRISE_CATALOG_URL,
+                    customer_catalog_uuid=enterprise_customer_catalog_uuid,
+                    query_params=query_params
                 ),
                 body=body,
                 content_type='application/json'
@@ -578,7 +595,75 @@ class EnterpriseServiceMockMixin(object):
         body = raise_timeout if raise_exception else json.dumps(enterprise_catalog_api_response)
         httpretty.register_uri(
             method=httpretty.GET,
-            uri='{}'.format(self.ENTERPRISE_CATALOG_URL),
+            uri='{}'.format(self.LEGACY_ENTERPRISE_CATALOG_URL),
             body=body,
             content_type='application/json'
         )
+
+
+class EnterpriseDiscountTestMixin:
+    """
+    Test mixin for EnterpriseDiscountMixin.
+    """
+
+    def setUp(self):
+        super(EnterpriseDiscountTestMixin, self).setUp()
+        self.discount_offer = self._create_enterprise_offer()
+
+    @staticmethod
+    def create_coupon_product():
+        """
+        Create the product of coupon type and return it.
+        """
+        coupon_product_class, _ = ProductClass.objects.get_or_create(name=COUPON_PRODUCT_CLASS_NAME)
+        return factories.create_product(
+            product_class=coupon_product_class,
+            title='Test product'
+        )
+
+    @staticmethod
+    def _create_enterprise_offer():
+        """
+        Return the enterprise offer.
+        """
+        return ConditionalOfferFactory.create(
+            benefit_id=EnterprisePercentageDiscountBenefitFactory.create().id,
+            condition_id=EnterpriseCustomerConditionFactory.create().id,
+        )
+
+    def _create_coupon_and_voucher(self, enterprise_contract_metadata=None):
+        """
+        Create and link the coupon product and voucher, and return the coupon_code and voucher.
+        """
+        coupon = self.create_coupon_product()
+        voucher = factories.VoucherFactory()
+        voucher.offers.add(self.discount_offer)
+        coupon_vouchers = CouponVouchers.objects.create(coupon=coupon)
+        coupon_vouchers.vouchers.add(voucher)
+
+        coupon.attr.enterprise_contract_metadata = enterprise_contract_metadata
+        coupon.attr.coupon_vouchers = coupon_vouchers
+        coupon.save()
+        return coupon.attr.coupon_vouchers.vouchers.first().code, voucher
+
+    def create_order_offer_discount(self, order, enterprise_contract_metadata=None):
+        """
+        Create the offer discount for order.
+        """
+        self.discount_offer.enterprise_contract_metadata = enterprise_contract_metadata
+        self.discount_offer.save()
+        discount = order.discounts.create()
+        discount.offer_id = self.discount_offer.id
+        discount.save()
+
+    def create_order_voucher_discount(self, order, enterprise_contract_metadata=None):
+        """
+        Create the voucher discount for order.
+        """
+        code, voucher = self._create_coupon_and_voucher(
+            enterprise_contract_metadata=enterprise_contract_metadata
+        )
+        discount = order.discounts.create()
+        discount.voucher_id = voucher.id
+        discount.voucher_code = code
+        discount.save()

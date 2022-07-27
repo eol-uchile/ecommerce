@@ -1,4 +1,4 @@
-from __future__ import absolute_import
+
 
 from django.urls import reverse
 from oscar.test.factories import OrderFactory
@@ -7,7 +7,7 @@ from ecommerce.tests.factories import UserFactory
 from ecommerce.tests.testcases import TestCase
 
 
-class DashboardViewTestMixin(object):
+class DashboardViewTestMixin:
     def assert_message_equals(self, response, msg, level):  # pylint: disable=unused-argument
         """ Verify the latest message matches the expected value. """
         messages = []

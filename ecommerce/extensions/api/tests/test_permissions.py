@@ -1,4 +1,4 @@
-from __future__ import absolute_import
+
 
 from rest_framework.parsers import JSONParser
 from rest_framework.request import Request
@@ -8,7 +8,7 @@ from ecommerce.extensions.api.permissions import CanActForUser
 from ecommerce.tests.testcases import TestCase
 
 
-class PermissionsTestMixin(object):
+class PermissionsTestMixin:
     def get_request(self, user=None, data=None):
         request = APIRequestFactory().post('/', data)
 

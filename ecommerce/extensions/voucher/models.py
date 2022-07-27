@@ -1,12 +1,16 @@
-from __future__ import absolute_import
+
 
 import datetime
 import logging
 
-from django.core.exceptions import MultipleObjectsReturned, ObjectDoesNotExist
+from django.core.exceptions import ObjectDoesNotExist
 from django.db import models
 from django.utils.translation import ugettext_lazy as _
-from oscar.apps.voucher.abstract_models import AbstractVoucher  # pylint: disable=ungrouped-imports
+from oscar.apps.voucher.abstract_models import (  # pylint: disable=ungrouped-imports
+    AbstractVoucher,
+    AbstractVoucherApplication
+)
+from simple_history.models import HistoricalRecords
 
 from ecommerce.core.utils import log_message_and_raise_validation_error
 from ecommerce.extensions.offer.constants import OFFER_ASSIGNMENT_REVOKED, OFFER_MAX_USES_DEFAULT, OFFER_REDEEMED
@@ -40,6 +44,12 @@ class Voucher(AbstractVoucher):
     )
     usage = models.CharField(_("Usage"), max_length=128,
                              choices=USAGE_CHOICES, default=MULTI_USE)
+    is_public = models.BooleanField(
+        verbose_name=_('Is Public Code Batch'),
+        help_text=_('Should this code batch be public or private for assignment.'),
+        blank=True,
+        default=False
+    )
 
     def is_available_to_user(self, user=None):
         is_available, message = super(Voucher, self).is_available_to_user(user)  # pylint: disable=bad-super-call
@@ -100,13 +110,11 @@ class Voucher(AbstractVoucher):
 
     @property
     def enterprise_offer(self):
-        try:
-            return self.offers.get(condition__enterprise_customer_uuid__isnull=False)
-        except ObjectDoesNotExist:
-            return None
-        except MultipleObjectsReturned:
-            logger.exception('There is more than one enterprise offer associated with voucher %s!', self.id)
-            return self.offers.filter(condition__enterprise_customer_uuid__isnull=False)[0]
+        offers = self.offers.all()
+        for offer in offers:
+            if offer.condition.enterprise_customer_uuid:
+                return offer
+        return None
 
     @property
     def best_offer(self):
@@ -125,11 +133,36 @@ class Voucher(AbstractVoucher):
 
         # Find the number of OfferAssignments that already exist that are not redeemed or revoked.
         # Redeemed OfferAssignments are excluded in favor of using num_orders on this voucher.
-        num_assignments = enterprise_offer.offerassignment_set.filter(code=self.code).exclude(
-            status__in=[OFFER_REDEEMED, OFFER_ASSIGNMENT_REVOKED]
-        ).count()
+        assignments = enterprise_offer.offerassignment_set.all()
+        num_assignments = 0
+        for assignment in assignments:
+            if assignment.code == self.code and assignment.status not in [OFFER_REDEEMED, OFFER_ASSIGNMENT_REVOKED]:
+                num_assignments += 1
 
         return self.calculate_available_slots(enterprise_offer.max_global_applications, num_assignments)
+
+    @property
+    def not_redeemed_assignment_ids(self):
+        """Returns offer assignments ids for the voucher that are available for redemption."""
+        enterprise_offer = self.enterprise_offer
+        # Assignment is only valid for Vouchers linked to an enterprise offer.
+        if not enterprise_offer:
+            return None
+
+        # To filter out redeemed assignments of the given voucher
+        users_having_usages = []
+        for application in self.applications.all():
+            user_email = application.user.email
+            users_having_usages.append(user_email)
+
+        not_redeemed_assignments = []
+        for assignment in enterprise_offer.offerassignment_set.all():
+            if assignment.code == self.code \
+                    and assignment.status not in [OFFER_REDEEMED, OFFER_ASSIGNMENT_REVOKED] \
+                    and assignment.user_email not in users_having_usages:
+                not_redeemed_assignments.append(assignment.id)
+
+        return not_redeemed_assignments
 
     def calculate_available_slots(self, max_global_applications, num_assignments):
         """
@@ -141,9 +174,12 @@ class Voucher(AbstractVoucher):
             if self.num_orders or num_assignments:
                 return 0
             return max_global_applications or 1
-        else:
-            offer_max_uses = max_global_applications or OFFER_MAX_USES_DEFAULT
-            return offer_max_uses - (self.num_orders + num_assignments)
+        offer_max_uses = max_global_applications or OFFER_MAX_USES_DEFAULT
+        return offer_max_uses - (self.num_orders + num_assignments)
+
+
+class VoucherApplication(AbstractVoucherApplication):
+    history = HistoricalRecords()
 
 
 from oscar.apps.voucher.models import *  # noqa isort:skip pylint: disable=wildcard-import,unused-wildcard-import,wrong-import-position,wrong-import-order,ungrouped-imports

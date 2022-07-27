@@ -1,14 +1,18 @@
 # -*- coding: utf-8 -*-
 """Unit tests of Cybersource payment processor implementation."""
-from __future__ import absolute_import, unicode_literals
+
 
 import copy
+import json
+from decimal import Decimal
+from unittest import SkipTest
 from uuid import UUID
 
 import ddt
 import mock
 import requests
 import responses
+from CyberSource.api_client import ApiClient
 from django.conf import settings
 from django.test import override_settings
 from django.urls import reverse
@@ -18,6 +22,7 @@ from oscar.core.loading import get_model
 from oscar.test import factories
 
 from ecommerce.courses.tests.factories import CourseFactory
+from ecommerce.extensions.basket.tests.test_utils import TEST_BUNDLE_ID
 from ecommerce.extensions.order.models import Order
 from ecommerce.extensions.payment.exceptions import (
     ExcessivePaymentForOrderError,
@@ -29,8 +34,13 @@ from ecommerce.extensions.payment.exceptions import (
     RedundantPaymentNotificationError
 )
 from ecommerce.extensions.payment.models import PaymentProcessorResponse
-from ecommerce.extensions.payment.processors.cybersource import Cybersource
-from ecommerce.extensions.payment.tests.mixins import CybersourceMixin
+from ecommerce.extensions.payment.processors.cybersource import (
+    Cybersource,
+    CybersourceREST,
+    Decision,
+    UnhandledCybersourceResponse
+)
+from ecommerce.extensions.payment.tests.mixins import CybersourceMixin, CyberSourceRESTAPIMixin
 from ecommerce.extensions.payment.tests.processors.mixins import PaymentProcessorTestCaseMixin
 from ecommerce.extensions.test.factories import create_basket
 from ecommerce.tests.factories import UserFactory
@@ -99,9 +109,8 @@ class CybersourceTests(CybersourceMixin, PaymentProcessorTestCaseMixin, TestCase
 
         with override_settings(PAYMENT_PROCESSOR_CONFIG=payment_processor_config):
             with self.assertRaisesMessage(
-                AssertionError,
-                'CyberSource processor must be configured for Silent Order POST and/or Secure Acceptance'
-            ):
+                    AssertionError,
+                    'CyberSource processor must be configured for Silent Order POST and/or Secure Acceptance'):
                 self.processor_class(self.site)
 
     def test_get_transaction_parameters(self):
@@ -116,14 +125,15 @@ class CybersourceTests(CybersourceMixin, PaymentProcessorTestCaseMixin, TestCase
 
     def test_get_transaction_parameters_with_program(self):
         """ Verify the processor returns parameters including Level 2/3 details. """
+        bundle_id = TEST_BUNDLE_ID
         BasketAttribute.objects.update_or_create(
             basket=self.basket,
             attribute_type=BasketAttributeType.objects.get(name='bundle_identifier'),
-            value_text='test_bundle'
+            value_text=bundle_id
         )
         self.assert_correct_transaction_parameters(
             extra_parameters={
-                'merchant_defined_data1': 'program,test_bundle',
+                'merchant_defined_data1': 'program,{}'.format(bundle_id),
                 'merchant_defined_data2': 'course,a/b/c,audit'
             }
         )
@@ -212,7 +222,10 @@ class CybersourceTests(CybersourceMixin, PaymentProcessorTestCaseMixin, TestCase
         """ Verify the processor creates the appropriate PaymentEvent and Source objects. """
 
         response = self.generate_notification(self.basket)
-        handled_response = self.processor.handle_processor_response(response, basket=self.basket)
+        handled_response = self.processor.handle_processor_response(
+            self.processor.normalize_processor_response(response),
+            basket=self.basket
+        )
         self.assertEqual(handled_response.currency, self.basket.currency)
         self.assertEqual(handled_response.total, self.basket.total_incl_tax)
         self.assertEqual(handled_response.transaction_id, response['transaction_id'])
@@ -226,7 +239,12 @@ class CybersourceTests(CybersourceMixin, PaymentProcessorTestCaseMixin, TestCase
         """
         response = self.generate_notification(self.basket)
         response['signature'] = 'Tampered.'
-        self.assertRaises(InvalidSignatureError, self.processor.handle_processor_response, response, basket=self.basket)
+        self.assertRaises(
+            InvalidSignatureError,
+            self.processor.handle_processor_response,
+            self.processor.normalize_processor_response(response),
+            basket=self.basket
+        )
 
     @ddt.data(
         ('CANCEL', UserCancelled),
@@ -238,7 +256,13 @@ class CybersourceTests(CybersourceMixin, PaymentProcessorTestCaseMixin, TestCase
         """ The handle_processor_response method should raise an exception if payment was not accepted. """
 
         response = self.generate_notification(self.basket, decision=decision)
-        self.assertRaises(exception, self.processor.handle_processor_response, response, basket=self.basket)
+
+        self.assertRaises(
+            exception,
+            self.processor.handle_processor_response,
+            self.processor.normalize_processor_response(response),
+            basket=self.basket
+        )
 
     def test_handle_processor_response_invalid_auth_amount(self):
         """
@@ -246,8 +270,12 @@ class CybersourceTests(CybersourceMixin, PaymentProcessorTestCaseMixin, TestCase
         differs from the requested amount.
         """
         response = self.generate_notification(self.basket, auth_amount='0.00')
-        self.assertRaises(PartialAuthorizationError, self.processor.handle_processor_response, response,
-                          basket=self.basket)
+        self.assertRaises(
+            PartialAuthorizationError,
+            self.processor.handle_processor_response,
+            self.processor.normalize_processor_response(response),
+            basket=self.basket
+        )
 
     def test_handle_processor_response_duplicate_notification(self):
         """
@@ -261,19 +289,27 @@ class CybersourceTests(CybersourceMixin, PaymentProcessorTestCaseMixin, TestCase
         self.assertTrue(Order.objects.filter(basket=self.basket).exists())
 
         # handle_processor_response should raise RedundantPaymentNotificationError for same transaction ID
-        self.assertRaises(RedundantPaymentNotificationError, self.processor.handle_processor_response, notification,
-                          basket=self.basket)
+        self.assertRaises(
+            RedundantPaymentNotificationError,
+            self.processor.handle_processor_response,
+            self.processor.normalize_processor_response(notification),
+            basket=self.basket
+        )
 
         notification['transaction_id'] = '394934470384'
         notification['signature'] = self.generate_signature(self.processor.secret_key, notification)
         # handle_processor_response should raise ExcessivePaymentForOrderError for different transaction ID
-        self.assertRaises(ExcessivePaymentForOrderError, self.processor.handle_processor_response, notification,
-                          basket=self.basket)
+        self.assertRaises(
+            ExcessivePaymentForOrderError,
+            self.processor.handle_processor_response,
+            self.processor.normalize_processor_response(notification),
+            basket=self.basket
+        )
 
     @responses.activate
     def test_issue_credit(self):
         """
-        Tests issue_credit operation
+        Tests issue_credit operation for refunds.
         """
         transaction_id = 'request-1234'
         refund = self.create_refund(self.processor_name)
@@ -407,3 +443,115 @@ class CybersourceTests(CybersourceMixin, PaymentProcessorTestCaseMixin, TestCase
         with mock.patch('zeep.Client.__init__', side_effect=Exception):
             with self.assertRaises(GatewayError):
                 self.processor.request_apple_pay_authorization(basket, None, None)
+
+
+@ddt.ddt
+class CybersourceRESTTests(CybersourceMixin, PaymentProcessorTestCaseMixin, CyberSourceRESTAPIMixin, TestCase):
+    """ Tests for CyberSource payment processor. """
+
+    processor_class = CybersourceREST
+    processor_name = "cybersource-rest"
+
+    # pylint: disable=line-too-long
+    @ddt.data(
+        (
+            """{"links":{"_self":{"href":"/pts/v2/payments/6021683934456376603262","method":"GET"},"reversal":null,"capture":null,"customer":null,"payment_instrument":null,"shipping_address":null,"instrument_identifier":null},"id":"6021683934456376603262","submit_time_utc":null,"status":"DECLINED","reconciliation_id":null,"error_information":{"reason":"PROCESSOR_DECLINED","message":"Decline - General decline of the card. No other information provided by the issuing bank.","details":null},"client_reference_information":{"code":"EDX-43544589","submit_local_date_time":null,"owner_merchant_id":null},"processing_information":null,"processor_information":{"auth_indicator":null,"approval_code":null,"transaction_id":"460282531937765","network_transaction_id":"460282531937765","provider_transaction_id":null,"response_code":"005","response_code_source":null,"response_details":null,"response_category_code":null,"forwarded_acquirer_code":null,"avs":{"code":"D","code_raw":"D"},"card_verification":{"result_code":"M","result_code_raw":"M"},"merchant_advice":null,"electronic_verification_results":null,"ach_verification":null,"customer":null,"consumer_authentication_response":null,"system_trace_audit_number":null,"payment_account_reference_number":null,"transaction_integrity_code":null,"amex_verbal_auth_reference_number":null,"master_card_service_code":null,"master_card_service_reply_code":null,"master_card_authentication_type":null,"name":null,"routing":null,"merchant_number":null},"issuer_information":null,"payment_information":{"card":null,"tokenized_card":null,"account_features":{"account_type":null,"account_status":null,"balances":null,"balance_amount":null,"balance_amount_type":null,"currency":null,"balance_sign":null,"affluence_indicator":null,"category":"F","commercial":null,"group":null,"health_care":null,"payroll":null,"level3_eligible":null,"pinless_debit":null,"signature_debit":null,"prepaid":null,"regulated":null},"bank":null,"customer":null,"payment_instrument":null,"instrument_identifier":null,"shipping_address":null},"order_information":null,"point_of_sale_information":null,"installment_information":null,"token_information":null,"risk_information":null,"consumer_authentication_information":null}""",
+            UnhandledCybersourceResponse(
+                decision=Decision.decline,
+                duplicate_payment=False,
+                partial_authorization=False,
+                currency=None,
+                total=None,
+                card_number='xxxx xxxx xxxx 1111',
+                card_type=None,
+                transaction_id="6021683934456376603262",
+                order_id="EDX-43544589",
+                raw_json=None,
+            )
+        ),
+        (
+            """{"links":{"_self":{"href":"/pts/v2/payments/6014090257646975704001","method":"GET"},"reversal":null,"capture":null,"customer":null,"payment_instrument":null,"shipping_address":null,"instrument_identifier":null},"id":"6014090257646975704001","submit_time_utc":"2020-09-29T19:50:26Z","status":"AUTHORIZED_PENDING_REVIEW","reconciliation_id":null,"error_information":{"reason":"CONTACT_PROCESSOR","message":"Decline - The issuing bank has questions about the request. You do not receive an authorization code programmatically, but you might receive one verbally by calling the processor.","details":null},"client_reference_information":{"code":"EDX-248645","submit_local_date_time":null,"owner_merchant_id":null},"processing_information":null,"processor_information":{"auth_indicator":null,"approval_code":null,"transaction_id":"558196000003814","network_transaction_id":"558196000003814","provider_transaction_id":null,"response_code":"001","response_code_source":null,"response_details":null,"response_category_code":null,"forwarded_acquirer_code":null,"avs":{"code":"Y","code_raw":"Y"},"card_verification":{"result_code":"2","result_code_raw":null},"merchant_advice":null,"electronic_verification_results":null,"ach_verification":null,"customer":null,"consumer_authentication_response":null,"system_trace_audit_number":null,"payment_account_reference_number":null,"transaction_integrity_code":null,"amex_verbal_auth_reference_number":null,"master_card_service_code":null,"master_card_service_reply_code":null,"master_card_authentication_type":null,"name":null,"routing":null,"merchant_number":null},"issuer_information":null,"payment_information":{"card":null,"tokenized_card":null,"account_features":{"account_type":null,"account_status":null,"balances":null,"balance_amount":null,"balance_amount_type":null,"currency":null,"balance_sign":null,"affluence_indicator":null,"category":"A","commercial":null,"group":null,"health_care":null,"payroll":null,"level3_eligible":null,"pinless_debit":null,"signature_debit":null,"prepaid":null,"regulated":null},"bank":null,"customer":null,"payment_instrument":null,"instrument_identifier":null,"shipping_address":null},"order_information":null,"point_of_sale_information":null,"installment_information":null,"token_information":null,"risk_information":null,"consumer_authentication_information":{"acs_rendering_type":null,"acs_transaction_id":null,"acs_url":null,"authentication_path":null,"authorization_payload":null,"authentication_transaction_id":null,"cardholder_message":null,"cavv":null,"cavv_algorithm":null,"challenge_cancel_code":null,"challenge_required":null,"decoupled_authentication_indicator":null,"directory_server_error_code":null,"directory_server_error_description":null,"ecommerce_indicator":null,"eci":null,"eci_raw":null,"effective_authentication_type":null,"ivr":null,"network_score":null,"pareq":null,"pares_status":null,"proof_xml":null,"proxy_pan":null,"sdk_transaction_id":null,"signed_pares_status_reason":null,"specification_version":null,"step_up_url":null,"three_ds_server_transaction_id":null,"ucaf_authentication_data":null,"ucaf_collection_indicator":null,"veres_enrolled":null,"white_list_status_source":null,"xid":null,"directory_server_transaction_id":null,"authentication_result":null,"authentication_status_msg":null,"indicator":null,"interaction_counter":null,"white_list_status":null}}""",
+            UnhandledCybersourceResponse(
+                decision=Decision.authorized_pending_review,
+                duplicate_payment=False,
+                partial_authorization=False,
+                currency=None,
+                total=None,
+                card_number='xxxx xxxx xxxx 1111',
+                card_type=None,
+                transaction_id="6014090257646975704001",
+                order_id="EDX-248645",
+                raw_json=None,
+            )
+        ), (
+            """{"links":{"_self":{"href":"/pts/v2/payments/6014073435566389304232","method":"GET"},"reversal":null,"capture":null,"customer":null,"payment_instrument":null,"shipping_address":null,"instrument_identifier":null},"id":"6014073435566389304232","submit_time_utc":"2020-09-29T19:22:24Z","status":"AUTHORIZED_PENDING_REVIEW","reconciliation_id":null,"error_information":{"reason":"CV_FAILED","message":"Soft Decline - The authorization request was approved by the issuing bank but declined by CyberSource because it did not pass the card verification number (CVN) check.","details":null},"client_reference_information":{"code":"EDX-43442011","submit_local_date_time":null,"owner_merchant_id":null},"processing_information":null,"processor_information":{"auth_indicator":null,"approval_code":"08369P","transaction_id":"MWEZQL3LE","network_transaction_id":"MWEZQL3LE","provider_transaction_id":null,"response_code":"000","response_code_source":null,"response_details":null,"response_category_code":null,"forwarded_acquirer_code":null,"avs":{"code":"Y","code_raw":"Y"},"card_verification":{"result_code":"N","result_code_raw":"N"},"merchant_advice":null,"electronic_verification_results":null,"ach_verification":null,"customer":null,"consumer_authentication_response":null,"system_trace_audit_number":null,"payment_account_reference_number":null,"transaction_integrity_code":null,"amex_verbal_auth_reference_number":null,"master_card_service_code":null,"master_card_service_reply_code":null,"master_card_authentication_type":null,"name":null,"routing":null,"merchant_number":null},"issuer_information":null,"payment_information":{"card":null,"tokenized_card":null,"account_features":{"account_type":null,"account_status":null,"balances":null,"balance_amount":null,"balance_amount_type":null,"currency":null,"balance_sign":null,"affluence_indicator":null,"category":"MWE","commercial":null,"group":null,"health_care":null,"payroll":null,"level3_eligible":null,"pinless_debit":null,"signature_debit":null,"prepaid":null,"regulated":null},"bank":null,"customer":null,"payment_instrument":null,"instrument_identifier":null,"shipping_address":null},"order_information":{"amount_details":{"total_amount":null,"authorized_amount":"50.00","currency":"USD"},"invoice_details":null},"point_of_sale_information":null,"installment_information":null,"token_information":null,"risk_information":null,"consumer_authentication_information":null}""",
+            UnhandledCybersourceResponse(
+                decision=Decision.authorized_pending_review,
+                duplicate_payment=False,
+                partial_authorization=False,
+                currency="USD",
+                total=Decimal(50),
+                card_number='xxxx xxxx xxxx 1111',
+                card_type=None,
+                transaction_id="6014073435566389304232",
+                order_id="EDX-43442011",
+                raw_json=None,
+            )
+        ), (
+            """{"links":{"_self":{"href":"/pts/v2/payments/6015729214586539504002","method":"GET"},"reversal":null,"capture":null,"customer":null,"payment_instrument":null,"shipping_address":null,"instrument_identifier":null},"id":"6015729214586539504002","submit_time_utc":"2020-10-01T17:22:02Z","status":"AUTHORIZED","reconciliation_id":null,"error_information":null,"client_reference_information":{"code":"EDX-248767","submit_local_date_time":null,"owner_merchant_id":null},"processing_information":null,"processor_information":{"auth_indicator":null,"approval_code":"831000","transaction_id":"558196000003814","network_transaction_id":"558196000003814","provider_transaction_id":null,"response_code":"000","response_code_source":null,"response_details":null,"response_category_code":null,"forwarded_acquirer_code":null,"avs":{"code":"Y","code_raw":"Y"},"card_verification":{"result_code":"3","result_code_raw":null},"merchant_advice":null,"electronic_verification_results":null,"ach_verification":null,"customer":null,"consumer_authentication_response":null,"system_trace_audit_number":null,"payment_account_reference_number":null,"transaction_integrity_code":null,"amex_verbal_auth_reference_number":null,"master_card_service_code":null,"master_card_service_reply_code":null,"master_card_authentication_type":null,"name":null,"routing":null,"merchant_number":null},"issuer_information":null,"payment_information":{"card":null,"tokenized_card":{"prefix":null,"suffix":null,"type":"001","assurance_level":null,"expiration_month":null,"expiration_year":null,"requestor_id":null},"account_features":{"account_type":null,"account_status":null,"balances":null,"balance_amount":null,"balance_amount_type":null,"currency":null,"balance_sign":null,"affluence_indicator":null,"category":"A","commercial":null,"group":null,"health_care":null,"payroll":null,"level3_eligible":null,"pinless_debit":null,"signature_debit":null,"prepaid":null,"regulated":null},"bank":null,"customer":null,"payment_instrument":null,"instrument_identifier":null,"shipping_address":null},"order_information":{"amount_details":{"total_amount":"900.00","authorized_amount":"900.00","currency":"USD"},"invoice_details":null},"point_of_sale_information":null,"installment_information":null,"token_information":null,"risk_information":null,"consumer_authentication_information":{"acs_rendering_type":null,"acs_transaction_id":null,"acs_url":null,"authentication_path":null,"authorization_payload":null,"authentication_transaction_id":null,"cardholder_message":null,"cavv":null,"cavv_algorithm":null,"challenge_cancel_code":null,"challenge_required":null,"decoupled_authentication_indicator":null,"directory_server_error_code":null,"directory_server_error_description":null,"ecommerce_indicator":null,"eci":null,"eci_raw":null,"effective_authentication_type":null,"ivr":null,"network_score":null,"pareq":null,"pares_status":null,"proof_xml":null,"proxy_pan":null,"sdk_transaction_id":null,"signed_pares_status_reason":null,"specification_version":null,"step_up_url":null,"three_ds_server_transaction_id":null,"ucaf_authentication_data":null,"ucaf_collection_indicator":null,"veres_enrolled":null,"white_list_status_source":null,"xid":null,"directory_server_transaction_id":null,"authentication_result":null,"authentication_status_msg":null,"indicator":null,"interaction_counter":null,"white_list_status":null}}""",
+            UnhandledCybersourceResponse(
+                decision=Decision.accept,
+                duplicate_payment=False,
+                partial_authorization=False,
+                currency="USD",
+                total=Decimal(900),
+                card_number='xxxx xxxx xxxx 1111',
+                card_type="visa",
+                transaction_id="6015729214586539504002",
+                order_id="EDX-248767",
+                raw_json=None,
+            )
+        )
+    )
+    # pylint: enable=line-too-long
+    @ddt.unpack
+    def test_normalize_processor_response(
+            self, processor_json, normalized_response
+    ):
+        """
+        Verify the results of normalize_processor_response for a variety of messages.
+        """
+        # The normalized response should always have the same processed json as is being
+        # loaded by the test.
+        normalized_response.raw_json = json.loads(processor_json)
+
+        processor_json = self.convertToCybersourceWireFormat(processor_json)
+        processor_response = ApiClient().deserialize(
+            mock.Mock(data=processor_json), 'PtsV2PaymentsPost201Response'
+        )
+        # Add a bogus JWT
+        processor_response.decoded_payment_token = {
+            'data': {'number': 'xxxx xxxx xxxx 1111'}
+        }
+        assert self.processor.normalize_processor_response(
+            processor_response
+        ) == normalized_response
+
+    def test_get_transaction_parameters(self):
+        """ Verify the processor returns the appropriate parameters required to complete a transaction. """
+        raise SkipTest("Not yet implemented")
+
+    def test_handle_processor_response(self):
+        """ Verify that the processor creates the appropriate PaymentEvent and Source objects. """
+        raise SkipTest("Not yet implemented")
+
+    def test_issue_credit(self):
+        """ Verify the payment processor responds appropriately to requests to issue credit/refund. """
+        raise SkipTest("Not yet implemented")
+
+    def test_issue_credit_error(self):
+        """ Verify the payment processor responds appropriately if the payment gateway cannot issue a credit/refund. """
+        raise SkipTest("Not yet implemented")
+
+    def test_client_side_payment_url(self):
+        raise SkipTest("No client side payment url for CybersourceREST")

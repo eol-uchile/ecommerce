@@ -1,8 +1,7 @@
-from __future__ import absolute_import
+
 
 import ddt
 import mock
-import six
 from django.conf import settings
 from django.utils.timezone import now, timedelta
 from freezegun import freeze_time
@@ -28,7 +27,7 @@ class CourseTests(DiscoveryTestMixin, TestCase):
         """Verify the __unicode__ method returns the Course ID."""
         course_id = u'edx/Demo_Course/DemoX'
         course = CourseFactory(id=course_id, partner=self.partner)
-        self.assertEqual(six.text_type(course.id), course_id)
+        self.assertEqual(str(course.id), course_id)
 
     def test_seat_products(self):
         """
@@ -130,7 +129,9 @@ class CourseTests(DiscoveryTestMixin, TestCase):
 
         # Test seat update
         price = 10
-        course.create_or_update_seat(certificate_type, id_verification_required, price)
+        course.create_or_update_seat(
+            certificate_type, id_verification_required, price, sku=seat.stockrecords.first().partner_sku
+        )
 
         # Again, only two seats with one being the parent seat product.
         self.assertEqual(course.products.count(), 2)
@@ -167,7 +168,7 @@ class CourseTests(DiscoveryTestMixin, TestCase):
         price = 10
 
         # Verify that the course can have multiple credit seats added to it
-        for credit_provider, credit_hours in six.iteritems(credit_data):
+        for credit_provider, credit_hours in credit_data.items():
             credit_seat = course.create_or_update_seat(
                 certificate_type,
                 id_verification_required,
@@ -199,7 +200,7 @@ class CourseTests(DiscoveryTestMixin, TestCase):
         certificate_type = 'credit'
         id_verification_required = True
         price = 10
-        course.create_or_update_seat(
+        credit_seat = course.create_or_update_seat(
             certificate_type,
             id_verification_required,
             price,
@@ -213,7 +214,8 @@ class CourseTests(DiscoveryTestMixin, TestCase):
             id_verification_required,
             price,
             credit_provider=credit_provider,
-            credit_hours=credit_hours
+            credit_hours=credit_hours,
+            sku=credit_seat.stockrecords.first().partner_sku,
         )
         self.assert_course_seat_valid(
             credit_seat,
@@ -363,7 +365,7 @@ class CourseTests(DiscoveryTestMixin, TestCase):
     @freeze_time('2017-01-01')
     def test_deactivate_enrollment_code(self):
         """Verify enrollment code expiration date is set in the past."""
-        course, __, __ = self.create_course_seat_and_enrollment_code()
+        course, _, __ = self.create_course_seat_and_enrollment_code()
         course.toggle_enrollment_code_status(False)
 
         ec_expires = now() - timedelta(days=365)

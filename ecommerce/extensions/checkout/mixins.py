@@ -1,18 +1,14 @@
 # Note: If future versions of django-oscar include new mixins, they will need to be imported here.
-from __future__ import absolute_import, unicode_literals
+
 
 import abc
 import logging
 
-import six
 import waffle
 from django.db import transaction
 from ecommerce_worker.fulfillment.v1.tasks import fulfill_order
 from oscar.apps.checkout.mixins import OrderPlacementMixin
 from oscar.core.loading import get_class, get_model
-# Pylint will stop complaining about this when https://github.com/PyCQA/pylint/pull/2824
-# is released
-from six.moves import range  # pylint: disable=ungrouped-imports
 
 from ecommerce.core.models import BusinessClient
 from ecommerce.extensions.analytics.utils import audit_log, track_segment_event
@@ -32,6 +28,7 @@ BasketAttribute = get_model('basket', 'BasketAttribute')
 BasketAttributeType = get_model('basket', 'BasketAttributeType')
 NoShippingRequired = get_class('shipping.methods', 'NoShippingRequired')
 OfferAssignment = get_model('offer', 'OfferAssignment')
+CodeAssignmentNudgeEmails = get_model('offer', 'CodeAssignmentNudgeEmails')
 Order = get_model('order', 'Order')
 OrderNumberGenerator = get_class('order.utils', 'OrderNumberGenerator')
 OrderTotalCalculator = get_class('checkout.calculators', 'OrderTotalCalculator')
@@ -42,7 +39,7 @@ Source = get_model('payment', 'Source')
 SourceType = get_model('payment', 'SourceType')
 
 
-class EdxOrderPlacementMixin(six.with_metaclass(abc.ABCMeta, OrderPlacementMixin)):
+class EdxOrderPlacementMixin(OrderPlacementMixin, metaclass=abc.ABCMeta):
     """ Mixin for edX-specific order placement. """
 
     # Instance of a payment processor with which to handle payment. Subclasses should set this value.
@@ -105,8 +102,20 @@ class EdxOrderPlacementMixin(six.with_metaclass(abc.ABCMeta, OrderPlacementMixin
         events (using add_payment_event) so they can be
         linked to the order when it is saved later on.
         """
-        handled_processor_response = self.payment_processor.handle_processor_response(response, basket=basket)
-        self.record_payment(basket, handled_processor_response)
+        properties = {'basket_id': basket.id, 'processor_name': self.payment_processor.NAME, }
+        # If payment didn't go through, the handle_processor_response function will raise an error. We want to
+        # send the event regardless of if the payment didn't go through.
+        try:
+            handled_processor_response = self.payment_processor.handle_processor_response(response, basket=basket)
+        except Exception as ex:
+            properties.update({'success': False, 'payment_error': type(ex).__name__, })
+            raise
+        else:
+            # We only record successful payments in the database.
+            self.record_payment(basket, handled_processor_response)
+            properties.update({'total': handled_processor_response.total, 'success': True, })
+        finally:
+            track_segment_event(basket.site, basket.owner, 'Payment Processor Response', properties)
 
     def emit_checkout_step_events(self, basket, handled_processor_response, payment_processor):
         """ Emit events necessary to track the user in the checkout funnel. """
@@ -356,6 +365,9 @@ class EdxOrderPlacementMixin(six.with_metaclass(abc.ABCMeta, OrderPlacementMixin
             ).order_by('-date_created').first()
             assignment.status = OFFER_REDEEMED
             assignment.save()
+
+            # unsubscribe user from receiving nudge emails
+            CodeAssignmentNudgeEmails.unsubscribe_from_nudging(codes=[voucher.code], user_emails=[basket.owner.email])
 
     def create_assignments_for_multi_use_per_customer(self, order):
         """

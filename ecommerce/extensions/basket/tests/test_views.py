@@ -1,8 +1,9 @@
-from __future__ import absolute_import
+
 
 import datetime
-import hashlib
 import itertools
+import urllib.error
+import urllib.parse
 from contextlib import contextmanager
 from decimal import Decimal
 
@@ -10,9 +11,6 @@ import ddt
 import httpretty
 import mock
 import pytz
-import six.moves.urllib.error  # pylint: disable=import-error
-import six.moves.urllib.parse  # pylint: disable=import-error
-import six.moves.urllib.request  # pylint: disable=import-error
 from django.conf import settings
 from django.contrib.messages import get_messages
 from django.http import HttpResponseRedirect
@@ -31,6 +29,7 @@ from waffle.testutils import override_flag
 from ecommerce.core.exceptions import SiteConfigurationError
 from ecommerce.core.tests import toggle_switch
 from ecommerce.core.url_utils import absolute_url, get_lms_url
+from ecommerce.core.utils import get_cache_key
 from ecommerce.coupons.tests.mixins import CouponMixin, DiscoveryMockMixin
 from ecommerce.courses.tests.factories import CourseFactory
 from ecommerce.enterprise.tests.mixins import EnterpriseServiceMockMixin
@@ -38,6 +37,7 @@ from ecommerce.enterprise.utils import construct_enterprise_course_consent_url
 from ecommerce.extensions.analytics.utils import translate_basket_line_for_segment
 from ecommerce.extensions.basket.constants import EMAIL_OPT_IN_ATTRIBUTE
 from ecommerce.extensions.basket.tests.mixins import BasketMixin
+from ecommerce.extensions.basket.tests.test_utils import TEST_BUNDLE_ID
 from ecommerce.extensions.basket.utils import _set_basket_bundle_status, apply_voucher_on_basket_and_check_discount
 from ecommerce.extensions.catalogue.tests.mixins import DiscoveryTestMixin
 from ecommerce.extensions.offer.constants import DYNAMIC_DISCOUNT_FLAG
@@ -73,8 +73,8 @@ BUNDLE = 'bundle_identifier'
 
 
 @ddt.ddt
-class BasketAddItemsViewTests(
-        CouponMixin, DiscoveryTestMixin, DiscoveryMockMixin, LmsApiMockMixin, BasketMixin, TestCase):
+class BasketAddItemsViewTests(CouponMixin, DiscoveryTestMixin, DiscoveryMockMixin, LmsApiMockMixin, BasketMixin,
+                              EnterpriseServiceMockMixin, TestCase):
     """ BasketAddItemsView view tests. """
     path = reverse('basket:basket-add')
 
@@ -90,7 +90,7 @@ class BasketAddItemsViewTests(
         self.catalog.stock_records.add(self.stock_record)
 
     def _get_response(self, product_skus, **url_params):
-        qs = six.moves.urllib.parse.urlencode({'sku': product_skus}, True)
+        qs = urllib.parse.urlencode({'sku': product_skus}, True)
         url = '{root}?{qs}'.format(root=self.path, qs=qs)
         for name, value in url_params.items():
             url += '&{}={}'.format(name, value)
@@ -142,6 +142,16 @@ class BasketAddItemsViewTests(
         expect_microfrontend = enable_redirect and set_url
         expected_url = microfrontend_url if expect_microfrontend else self.get_full_url(reverse('basket:summary'))
         expected_url += '?utm_source=test'
+        self.assertRedirects(response, expected_url, status_code=303, fetch_redirect_response=False)
+
+    def test_add_invalid_code_to_basket(self):
+        """
+        When the BasketAddItemsView receives an invalid code as a parameter, add a message to the url.
+        This message will be displayed on the payment page.
+        """
+        microfrontend_url = self.configure_redirect_to_microfrontend(True, True)
+        response = self._get_response(self.stock_record.partner_sku, code='invalidcode')
+        expected_url = microfrontend_url + '?error_message=Code%20invalidcode%20is%20invalid.'
         self.assertRedirects(response, expected_url, status_code=303, fetch_redirect_response=False)
 
     def test_microfrontend_for_enrollment_code_seat(self):
@@ -278,8 +288,27 @@ class BasketAddItemsViewTests(
         )
         self.assertEqual(basket_attribute.value_text, 'False')
 
+    @httpretty.activate
+    def test_enterprise_free_basket_redirect(self):
+        """
+        Verify redirect to FreeCheckoutView when basket is free
+        and an Enterprise-related offer is applied.
+        """
+        enterprise_offer = self.prepare_enterprise_offer()
 
-class BasketLogicTestMixin(object):
+        opts = {
+            'ec_uuid': str(enterprise_offer.condition.enterprise_customer_uuid),
+            'course_id': self.course.id,
+            'username': self.user.username,
+        }
+        self.mock_consent_get(**opts)
+
+        response = self._get_response(self.stock_record.partner_sku)
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.url, absolute_url(self.request, 'checkout:free-checkout'))
+
+
+class BasketLogicTestMixin:
     """ Helper functions for Basket API and BasketSummaryView tests. """
     def create_empty_basket(self):
         basket = factories.BasketFactory(owner=self.user, site=self.site)
@@ -423,7 +452,7 @@ class PaymentApiResponseTestMixin(BasketLogicTestMixin):
             u'offers': offers,
             u'coupons': coupons,
             u'messages': messages if messages else [],
-            u'is_free_basket': True if order_total == 0 else False,
+            u'is_free_basket': order_total == 0,
             u'show_coupon_form': show_coupon_form,
             u'summary_discounts': summary_discounts,
             u'summary_price': summary_price,
@@ -437,7 +466,7 @@ class PaymentApiResponseTestMixin(BasketLogicTestMixin):
                     u'course_key': getattr(line.product.attr, 'course_key', None),
                     u'title': title,
                 } for line in basket.lines.all()
-            ]
+            ],
         }
         if kwargs:
             expected_response.update(**kwargs)
@@ -827,8 +856,10 @@ class BasketSummaryViewTests(EnterpriseServiceMockMixin, DiscoveryTestMixin, Dis
             self.course, discovery_api_url=self.site_configuration.discovery_api_url
         )
 
-        cache_key = u'courses_api_detail_{}{}'.format(self.course.id, self.partner.short_code)
-        cache_key = hashlib.md5(cache_key.encode('utf-8')).hexdigest()
+        cache_key = get_cache_key(
+            site_domain=self.site,
+            resource="{}-{}".format('course_runs', self.course.id)
+        )
         course_before_cached_response = TieredCache.get_cached_response(cache_key)
         self.assertFalse(course_before_cached_response.is_found)
 
@@ -933,9 +964,8 @@ class BasketSummaryViewTests(EnterpriseServiceMockMixin, DiscoveryTestMixin, Dis
         """ The view should redirect to the login page if the user is not logged in. """
         self.client.logout()
         response = self.client.get(self.path)
-        testserver_login_url = self.get_full_url(reverse(settings.LOGIN_URL))
-        expected_url = '{path}?next={next}'.format(path=testserver_login_url,
-                                                   next=six.moves.urllib.parse.quote(self.path))
+        expected_url = '{path}?next={next}'.format(path=reverse(settings.LOGIN_URL),
+                                                   next=urllib.parse.quote(self.path))
         self.assertRedirects(response, expected_url, target_status_code=302)
 
     @ddt.data(
@@ -1161,7 +1191,7 @@ class VoucherAddMixin(LmsApiMockMixin, DiscoveryMockMixin):
         BasketAttribute.objects.update_or_create(
             basket=self.basket,
             attribute_type=BasketAttributeType.objects.get(name=BUNDLE),
-            value_text='test_bundle'
+            value_text=TEST_BUNDLE_ID
         )
         messages = [{
             'message_type': u'error',
@@ -1178,7 +1208,7 @@ class VoucherAddMixin(LmsApiMockMixin, DiscoveryMockMixin):
         new_product = factories.ProductFactory(categories=[], stockrecords__partner__short_code='second')
         self.basket.add_product(product)
         self.basket.add_product(new_product)
-        _set_basket_bundle_status('test-bundle', self.basket)
+        _set_basket_bundle_status(TEST_BUNDLE_ID, self.basket)
         messages = [{
             'message_type': u'info',
             'user_message': u"Coupon code '{code}' added to basket.".format(code=voucher.code),
@@ -1274,10 +1304,61 @@ class VoucherAddMixin(LmsApiMockMixin, DiscoveryMockMixin):
             messages=messages,
         )
 
+    def _get_account_activation_view_response(self, keys, template_name):
+        url = '{url}?{params}'.format(
+            url=reverse('offers:email_confirmation'),
+            params=urllib.parse.urlencode([('course_id', key) for key in keys])
+        )
+        with self.assertTemplateUsed(template_name):
+            return self.client.get(url)
+
+    def _assert_account_activation_rendered(self, keys, expected_titles):
+        """
+        Assert the account activation view.
+        """
+        response = self._get_account_activation_view_response(keys, "edx/email_confirmation_required.html")
+        expected_titles = expected_titles if isinstance(expected_titles, list) else [expected_titles]
+        self.assertIn(u'An email has been sent to {}'.format(self.user.email), response.content.decode('utf-8'))
+        for expected_title in expected_titles:
+            self.assertIn(u'{}'.format(expected_title), response.content.decode('utf-8'))
+
     def test_account_activation_rendered(self):
-        with self.assertTemplateUsed('edx/email_confirmation_required.html'):
-            response = self.client.get(reverse('offers:email_confirmation'))
-            self.assertIn(u'An email has been sent to {}'.format(self.user.email), response.content.decode('utf-8'))
+        """
+        Test the account activation view.
+        """
+        course = CourseFactory()
+        other_course = CourseFactory()
+        course_key = "course+key"
+
+        # test single course_run
+        self._assert_account_activation_rendered([course.id], course.name)
+
+        # test multiple course_run
+        self._assert_account_activation_rendered([course.id, other_course.id], [course.name, other_course.name])
+
+        # test course key
+        self.mock_access_token_response()
+        self.mock_course_detail_endpoint(
+            discovery_api_url=self.site_configuration.discovery_api_url,
+            course_key=course_key
+        )
+        self._assert_account_activation_rendered([course_key], "edX Demo Course",)
+
+    def test_account_activation_rendered_with_error(self):
+        """
+        Test the account activation view if exception raised..
+        """
+        course_key = "course+key"
+
+        # test exception raise if discovery endpoint doesn't work as expected.
+        self.mock_access_token_response()
+        self.mock_course_detail_endpoint_error(
+            course_key,
+            discovery_api_url=self.site_configuration.discovery_api_url,
+            error=ReqConnectionError,
+        )
+        response = self._get_account_activation_view_response([course_key], "404.html")
+        self.assertIn(u'Not Found', response.content.decode('utf-8'))
 
 
 @httpretty.activate

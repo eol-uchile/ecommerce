@@ -1,4 +1,4 @@
-from __future__ import absolute_import, unicode_literals
+
 
 import logging
 from uuid import uuid4
@@ -23,7 +23,7 @@ Product = get_model('catalogue', 'Product')
 ProductClass = get_model('catalogue', 'ProductClass')
 
 
-class DiscoveryTestMixin(object):
+class DiscoveryTestMixin:
     """
     Mixin for all tests involving the course catalog or course seats.
 
@@ -137,7 +137,7 @@ class DiscoveryTestMixin(object):
             ('id_verification_required', 'boolean')
         )
         product_class = self._create_product_class(
-            ENROLLMENT_CODE_PRODUCT_CLASS_NAME, 'enrollment_code', attributes
+            ENROLLMENT_CODE_PRODUCT_CLASS_NAME, slugify(ENROLLMENT_CODE_PRODUCT_CLASS_NAME), attributes
         )
         return product_class
 

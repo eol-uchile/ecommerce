@@ -1,14 +1,13 @@
-from __future__ import absolute_import
+
 
 import os
-from unittest import skipIf
+from unittest import SkipTest, skipIf
 
-import six
+import pytest
 from bok_choy.browser import browser
 from django.contrib.messages import constants as MSG
 from django.test import override_settings
 from django.urls import reverse
-from nose.plugins.skip import SkipTest
 from oscar.core.loading import get_model
 from selenium.common.exceptions import NoSuchElementException
 from selenium.webdriver.support.wait import WebDriverWait
@@ -27,7 +26,7 @@ Refund = get_model('refund', 'Refund')
 ShippingEventType = get_model('order', 'ShippingEventType')
 
 
-class OrderViewTestsMixin(object):
+class OrderViewTestsMixin:
     """
     Mixin for testing dashboard order views.
 
@@ -46,6 +45,7 @@ class OrderViewTestsMixin(object):
             self.assertListEqual(list(response.context['orders']), orders)
 
 
+@pytest.mark.acceptance
 class OrderViewBrowserTestBase(LiveServerTestCase):
     @classmethod
     def setUpClass(cls):
@@ -82,7 +82,7 @@ class OrderViewBrowserTestBase(LiveServerTestCase):
     def retry_fulfillment(self):
         """ Click the retry fulfillment button and wait for the AJAX call to finish. """
         button = self.selenium.find_element_by_css_selector(self.btn_selector)
-        self.assertEqual(six.text_type(self.order.number), button.get_attribute('data-order-number'))
+        self.assertEqual(str(self.order.number), button.get_attribute('data-order-number'))
         button.click()
 
         # Wait for the AJAX call to finish and display an alert
@@ -213,7 +213,7 @@ class OrderDetailViewTests(DashboardViewTestMixin, OrderViewTestsMixin, RefundTe
         # Verify a message was passed for display
         data = {
             'link_start': '<a href="{}" target="_blank">'.format(
-                reverse('dashboard:refunds:detail', kwargs={'pk': refund.pk})),
+                reverse('dashboard:refunds-detail', kwargs={'pk': refund.pk})),
             'link_end': '</a>',
             'refund_id': refund.pk
         }

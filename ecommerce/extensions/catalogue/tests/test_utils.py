@@ -1,10 +1,9 @@
 # -*- coding: utf-8 -*-
-from __future__ import absolute_import, unicode_literals
+
 
 from hashlib import md5
 
 import ddt
-import six
 from django.db.utils import IntegrityError
 from oscar.core.loading import get_model
 
@@ -98,7 +97,7 @@ class CouponUtilsTests(CouponMixin, DiscoveryTestMixin, TestCase):
         """Verify the method generates a SKU for a coupon."""
         coupon = self.create_coupon(partner=self.partner, catalog=self.catalog)
         _hash = ' '.join((
-            six.text_type(coupon.id),
+            str(coupon.id),
             str(self.partner.id)
         )).encode('utf-8')
 
@@ -114,7 +113,7 @@ class CouponCreationTests(CouponMixin, TestCase):
         self.catalog = Catalog.objects.create(partner=self.partner)
 
     def create_custom_coupon(self, benefit_value=100, code='', max_uses=None, note=None, quantity=1,
-                             title='Tešt Čoupon'):
+                             title='Tešt Čoupon', sales_force_id=None):
         """Create a custom test coupon product."""
 
         return create_coupon_product(
@@ -139,7 +138,8 @@ class CouponCreationTests(CouponMixin, TestCase):
             title=title,
             voucher_type=Voucher.ONCE_PER_CUSTOMER,
             program_uuid=None,
-            site=self.site
+            site=self.site,
+            sales_force_id=sales_force_id
         )
 
     def test_custom_code_integrity_error(self):
@@ -183,3 +183,11 @@ class CouponCreationTests(CouponMixin, TestCase):
         coupon = self.create_custom_coupon(max_uses=max_uses_number)
         voucher = coupon.attr.coupon_vouchers.vouchers.first()
         self.assertEqual(voucher.offers.first().max_global_applications, max_uses_number)
+
+    def test_coupon_sales_force_id(self):
+        """Test creating a coupon with sales force opprtunity id."""
+        sales_force_id = 'salesforceid123'
+        title = 'Coupon'
+        note_coupon = self.create_custom_coupon(sales_force_id=sales_force_id, title=title)
+        self.assertEqual(note_coupon.attr.sales_force_id, sales_force_id)
+        self.assertEqual(note_coupon.title, title)

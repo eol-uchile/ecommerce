@@ -1,8 +1,9 @@
-from __future__ import absolute_import
+
 
 import datetime
 import json
 import logging
+from urllib.parse import unquote, urlencode
 
 import newrelic.agent
 import pytz
@@ -13,12 +14,10 @@ from django.db import transaction
 from django.utils.translation import ugettext_lazy as _
 from oscar.apps.basket.signals import voucher_addition
 from oscar.core.loading import get_class, get_model
-from six.moves.urllib.parse import unquote, urlencode
 
 from ecommerce.core.url_utils import absolute_url
 from ecommerce.courses.utils import mode_for_product
 from ecommerce.extensions.basket.constants import PURCHASER_BEHALF_ATTRIBUTE
-from ecommerce.extensions.offer.constants import CUSTOM_APPLICATOR_USE_FLAG
 from ecommerce.extensions.order.exceptions import AlreadyPlacedOrderException
 from ecommerce.extensions.order.utils import UserAlreadyPlacedOrder
 from ecommerce.extensions.payment.constants import DISABLE_MICROFRONTEND_FOR_BASKET_PAGE_FLAG_NAME
@@ -26,7 +25,6 @@ from ecommerce.extensions.payment.utils import embargo_check
 from ecommerce.referrals.models import Referral
 
 Applicator = get_class('offer.applicator', 'Applicator')
-CustomApplicator = get_class('offer.applicator', 'CustomApplicator')
 Basket = get_model('basket', 'Basket')
 BasketAttribute = get_model('basket', 'BasketAttribute')
 BasketAttributeType = get_model('basket', 'BasketAttributeType')
@@ -39,6 +37,29 @@ Refund = get_model('refund', 'Refund')
 Voucher = get_model('voucher', 'Voucher')
 
 logger = logging.getLogger(__name__)
+
+
+# TODO: Remove this as part of PCI-81
+def add_flex_microform_flag_to_url(url, request, force_flag=None):
+    microform_flag_name = 'payment.cybersource.flex_microform_enabled'
+    flag_is_active = waffle.flag_is_active(
+        request,
+        microform_flag_name
+    )
+
+    if not flag_is_active and force_flag is None:
+        return url
+
+    if force_flag is not None:
+        flag_is_active = force_flag
+
+    flag = 'dwft_{}={}'.format(microform_flag_name, 1 if flag_is_active else 0)
+    join = '&' if '?' in url else '?'
+    return '{url}{join}{flag}'.format(
+        url=url,
+        join=join,
+        flag=flag,
+    )
 
 
 def get_payment_microfrontend_or_basket_url(request):
@@ -76,6 +97,14 @@ def add_utm_params_to_url(url, params):
     # (course-keys do not have url encoding)
     utm_params = unquote(utm_params)
     url = url + '?' + utm_params if utm_params else url
+    return url
+
+
+@newrelic.agent.function_trace()
+def add_invalid_code_message_to_url(url, code):
+    if code:
+        message = 'error_message=Code {code} is invalid.'.format(code=str(code))
+        url += '&' + message if '?' in url else '?' + message
     return url
 
 
@@ -119,8 +148,18 @@ def prepare_basket(request, products, voucher=None):
             )
             return basket
 
-    is_multi_product_basket = True if len(products) > 1 else False
+    is_multi_product_basket = len(products) > 1
     for product in products:
+        # Multiple clicks can try adding twice, return if product is seat already in basket
+        if is_duplicate_seat_attempt(basket, product):
+            logger.info(
+                'User [%s] repeated request to add [%s] seat of course [%s], will ignore',
+                request.user.username,
+                mode_for_product(product),
+                product.course_id
+            )
+            return basket
+
         if product.is_enrollment_code_product or \
                 not UserAlreadyPlacedOrder.user_already_placed_order(user=request.user,
                                                                      product=product, site=request.site):
@@ -456,10 +495,7 @@ def apply_offers_on_basket(request, basket):
         basket (Basket): basket object on which the offers will be applied
     """
     if not basket.is_empty:
-        if waffle.flag_is_active(request, CUSTOM_APPLICATOR_USE_FLAG):  # pragma: no cover
-            CustomApplicator().apply(basket, request.user, request)
-        else:
-            Applicator().apply(basket, request.user, request)
+        Applicator().apply(basket, request.user, request)
 
 
 @newrelic.agent.function_trace()
@@ -480,10 +516,7 @@ def apply_voucher_on_basket_and_check_discount(voucher, request, basket):
     basket.vouchers.add(voucher)
     voucher_addition.send(sender=None, basket=basket, voucher=voucher)
 
-    if waffle.flag_is_active(request, CUSTOM_APPLICATOR_USE_FLAG):  # pragma: no cover
-        CustomApplicator().apply(basket, request.user, request)
-    else:
-        Applicator().apply(basket, request.user, request)
+    Applicator().apply(basket, request.user, request)
 
     # Recalculate discounts to see if the voucher gives any
     discounts_after = basket.offer_applications
@@ -504,3 +537,18 @@ def apply_voucher_on_basket_and_check_discount(voucher, request, basket):
     logger.info('Coupon Code [%s] is not valid for basket [%s]', voucher.code, basket.id)
     basket.clear_vouchers()
     return False, msg
+
+
+def is_duplicate_seat_attempt(basket, product):
+    """
+    Checks basket for duplicate seat product
+
+    Args:
+        basket (Basket): basket object onto which we'll (potentially) add the new product
+        product (Product): product to search for in the basket
+    """
+
+    product_type = product.get_product_class().name
+    found_product_quantity = basket.product_quantity(product)
+
+    return bool(product_type == 'Seat' and found_product_quantity)

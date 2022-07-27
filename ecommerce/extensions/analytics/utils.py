@@ -1,11 +1,11 @@
-from __future__ import absolute_import
+
 
 import json
 import logging
 from functools import wraps
+from urllib.parse import urlunsplit
 
 from django.db import transaction
-from six.moves.urllib.parse import urlunsplit  # pylint: disable=import-error
 
 from ecommerce.courses.utils import mode_for_product
 
@@ -111,8 +111,8 @@ def prepare_analytics_data(user, segment_key):
         }
     }
 
-    if user.is_authenticated():
-        user_tracking_id, __, __ = parse_tracking_context(user, usage='analytics')
+    if user.is_authenticated:
+        user_tracking_id, _, __ = parse_tracking_context(user, usage='analytics')
         user_data = {
             'user': {
                 'user_tracking_id': user_tracking_id,

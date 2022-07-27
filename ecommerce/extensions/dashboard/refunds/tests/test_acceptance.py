@@ -1,12 +1,12 @@
-from __future__ import absolute_import
+
 
 import os
-from unittest import skip
+from unittest import SkipTest, skip
 
 import ddt
+import pytest
 from bok_choy.browser import browser
 from django.urls import reverse
-from nose.plugins.skip import SkipTest
 from oscar.core.loading import get_model
 from selenium.common.exceptions import NoSuchElementException
 from selenium.webdriver.support.wait import WebDriverWait
@@ -25,6 +25,7 @@ ALL_REFUND_STATUSES = (
 
 
 @ddt.ddt
+@pytest.mark.acceptance
 class RefundAcceptanceTestMixin(RefundTestMixin):
     @classmethod
     def setUpClass(cls):
@@ -32,6 +33,7 @@ class RefundAcceptanceTestMixin(RefundTestMixin):
             raise SkipTest
 
         cls.selenium = browser()
+        cls.selenium.set_page_load_timeout(30)
         super(RefundAcceptanceTestMixin, cls).setUpClass()
 
     @classmethod
@@ -220,7 +222,7 @@ class RefundListViewTests(RefundAcceptanceTestMixin, LiveServerTestCase):
 
     def setUp(self):
         super(RefundListViewTests, self).setUp()
-        self.path = reverse('dashboard:refunds:list')
+        self.path = reverse('dashboard:refunds-list')
 
 
 class RefundDetailViewTests(RefundAcceptanceTestMixin, LiveServerTestCase):
@@ -228,4 +230,4 @@ class RefundDetailViewTests(RefundAcceptanceTestMixin, LiveServerTestCase):
 
     def setUp(self):
         super(RefundDetailViewTests, self).setUp()
-        self.path = reverse('dashboard:refunds:detail', args=[self.refund.id])
+        self.path = reverse('dashboard:refunds-detail', args=[self.refund.id])

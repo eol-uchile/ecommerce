@@ -1,16 +1,16 @@
 """
 Helper methods for enterprise app.
 """
-from __future__ import absolute_import
+
 
 import hashlib
 import hmac
 import logging
 from collections import OrderedDict
 from functools import reduce  # pylint: disable=redefined-builtin
+from urllib.parse import urlencode, urlparse
 
 import crum
-import six  # pylint: disable=ungrouped-imports
 from django.conf import settings
 from django.urls import reverse
 from django.utils.translation import ugettext as _
@@ -20,13 +20,10 @@ from edx_rest_framework_extensions.auth.jwt.cookies import get_decoded_jwt
 from oscar.core.loading import get_model
 from requests.exceptions import ConnectionError as ReqConnectionError
 from requests.exceptions import Timeout
-from six.moves.urllib.parse import urlparse  # pylint: disable=import-error, relative-import
-from six.moves.urllib.parse import urlencode
 from slumber.exceptions import SlumberHttpBaseException
 
 from ecommerce.core.constants import SYSTEM_ENTERPRISE_LEARNER_ROLE
 from ecommerce.core.url_utils import absolute_url, get_lms_dashboard_url
-from ecommerce.enterprise.api import fetch_enterprise_learner_data
 from ecommerce.enterprise.exceptions import EnterpriseDoesNotExist
 from ecommerce.extensions.offer.models import OFFER_PRIORITY_ENTERPRISE
 
@@ -266,7 +263,7 @@ def get_enterprise_customer_consent_failed_context_data(request, voucher):
     }
 
 
-def get_or_create_enterprise_customer_user(site, enterprise_customer_uuid, username):
+def get_or_create_enterprise_customer_user(site, enterprise_customer_uuid, username, active=True):
     """
     Create a new EnterpriseCustomerUser on the enterprise service if one doesn't already exist.
     Return the EnterpriseCustomerUser data.
@@ -274,6 +271,7 @@ def get_or_create_enterprise_customer_user(site, enterprise_customer_uuid, usern
     data = {
         'enterprise_customer': str(enterprise_customer_uuid),
         'username': username,
+        'active': active,
     }
     api_resource_name = 'enterprise-learner'
     api = site.siteconfiguration.enterprise_api_client
@@ -430,7 +428,7 @@ def get_enterprise_customer_data_sharing_consent_token(access_token, course_id, 
     Enterprise Customer combination.
     """
     consent_token_hmac = hmac.new(
-        six.text_type(access_token).encode('utf-8'),
+        str(access_token).encode('utf-8'),
         u'{course_id}_{enterprise_customer_uuid}'.format(
             course_id=course_id,
             enterprise_customer_uuid=enterprise_customer_uuid,
@@ -566,26 +564,6 @@ def get_enterprise_id_for_current_request_user_from_jwt():
     return None
 
 
-def get_enterprise_id_for_user(site, user):
-    enterprise_from_jwt = get_enterprise_id_for_current_request_user_from_jwt()
-    if enterprise_from_jwt:
-        return enterprise_from_jwt
-
-    try:
-        enterprise_learner_response = fetch_enterprise_learner_data(site, user)
-    except (ReqConnectionError, KeyError, SlumberHttpBaseException, Timeout) as exc:
-        logging.exception('Unable to retrieve enterprise learner data for the user!'
-                          'User: %s, Exception: %s', user, exc)
-        return None
-
-    try:
-        return enterprise_learner_response['results'][0]['enterprise_customer']['uuid']
-    except IndexError:
-        pass
-
-    return None
-
-
 def get_enterprise_customer_from_enterprise_offer(basket):
     """
     Return enterprise customer uuid if the basket has an Enterprise-related offer applied.
@@ -621,8 +599,16 @@ def construct_enterprise_course_consent_url(request, course_id, enterprise_custo
         'next': absolute_url(request, 'checkout:free-checkout'),
         'failure_url': failure_url,
     }
+
     redirect_url = '{base}?{params}'.format(
         base=site.siteconfiguration.enterprise_grant_data_sharing_url,
         params=urlencode(request_params)
     )
     return redirect_url
+
+
+def convert_comma_separated_string_to_list(comma_separated_string):
+    """
+    Convert the comma separated string to a valid list.
+    """
+    return list(set(item.strip() for item in comma_separated_string.split(",") if item.strip()))

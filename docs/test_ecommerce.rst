@@ -97,7 +97,7 @@ these models, which are used for multi-tenancy.
 
   .. code-block:: bash
 
-      $ tox -e py35-tests -- ecommerce.courses.tests.test_utils:UtilsTests.test_get_course_info_from_catalog_cached
+      $ pytest ecommerce/courses/tests/test_utils.py::UtilsTests::test_get_course_info_from_catalog_cached
 
 To debug when running tests using ``manage.py``, you may need to use the
 following instead of ``pdb`` directly, or nosetests may hang while creating
@@ -150,7 +150,7 @@ To configure the LMS, follow these steps.
       "JWT_ISSUER": "http://127.0.0.1:8000/oauth2" // Must match the E-Commerce JWT_ISSUER setting
       "OAUTH_ENFORCE_SECURE": false
 
-#. Verify that the following settings in ``lms.auth.json`` are correct.
+#. Verify that the following settings in ``lms.yml`` are correct.
 
    .. code-block:: bash
 

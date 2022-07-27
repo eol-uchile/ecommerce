@@ -1,16 +1,16 @@
 """Offer Utility Methods. """
-from __future__ import absolute_import
+
 
 import logging
 import string  # pylint: disable=W0402
 from decimal import Decimal
+from urllib.parse import urlencode
 
 import bleach
 from django.conf import settings
 from django.utils.translation import ugettext_lazy as _
 from ecommerce_worker.sailthru.v1.tasks import send_offer_assignment_email, send_offer_update_email
 from oscar.core.loading import get_model
-from six.moves.urllib.parse import urlencode
 
 from ecommerce.core.url_utils import absolute_redirect
 from ecommerce.extensions.checkout.utils import add_currency
@@ -128,16 +128,43 @@ def get_redirect_to_email_confirmation_if_required(request, offer, product):
     return None
 
 
+def format_assigned_offer_email(greeting, closing, learner_email, code, redemptions_remaining, code_expiration_date):
+    """
+    Arguments:
+        greeting (String): Email greeting (prefix)
+        closing (String): Email closing (suffix)
+        learner_email (String): Email of the customer who will receive the code.
+        code (String): Code for the user.
+        redemptions_remaining (Integer): Number of times the code can be redeemed.
+        code_expiration_date(Datetime): Date till code is valid.
+
+
+    Return the formatted email body for offer assignment.
+    """
+    email_template = settings.OFFER_ASSIGNMENT_EMAIL_TEMPLATE
+    placeholder_dict = SafeDict(
+        REDEMPTIONS_REMAINING=redemptions_remaining,
+        USER_EMAIL=learner_email,
+        CODE=code,
+        EXPIRATION_DATE=code_expiration_date
+    )
+    return format_email(email_template, placeholder_dict, greeting, closing)
+
+
 def send_assigned_offer_email(
+        subject,
         greeting,
         closing,
         offer_assignment_id,
         learner_email,
         code,
         redemptions_remaining,
-        code_expiration_date):
+        code_expiration_date,
+        base_enterprise_url=''):
     """
     Arguments:
+        *subject*
+            The email subject
         *email_greeting*
             The email greeting (prefix)
         *email_closing*
@@ -153,20 +180,20 @@ def send_assigned_offer_email(
         *code_expiration_date*
             Date till code is valid.
     """
-
-    email_subject = settings.OFFER_ASSIGNMENT_EMAIL_SUBJECT
-    email_template = settings.OFFER_ASSIGNMENT_EMAIL_TEMPLATE
-    placeholder_dict = SafeDict(
-        REDEMPTIONS_REMAINING=redemptions_remaining,
-        USER_EMAIL=learner_email,
-        CODE=code,
-        EXPIRATION_DATE=code_expiration_date
+    email_body = format_assigned_offer_email(
+        greeting,
+        closing,
+        learner_email,
+        code,
+        redemptions_remaining,
+        code_expiration_date
     )
-    email_body = format_email(email_template, placeholder_dict, greeting, closing)
-    send_offer_assignment_email.delay(learner_email, offer_assignment_id, email_subject, email_body)
+    send_offer_assignment_email.delay(learner_email, offer_assignment_id, subject, email_body, None,
+                                      base_enterprise_url)
 
 
 def send_revoked_offer_email(
+        subject,
         greeting,
         closing,
         learner_email,
@@ -174,6 +201,8 @@ def send_revoked_offer_email(
 ):
     """
     Arguments:
+        *subject*
+            The email subject
         *email_greeting*
             The email greeting (prefix)
         *email_closing*
@@ -183,18 +212,17 @@ def send_revoked_offer_email(
         *code*
             Code for the user.
     """
-
-    email_subject = settings.OFFER_REVOKE_EMAIL_SUBJECT
     email_template = settings.OFFER_REVOKE_EMAIL_TEMPLATE
     placeholder_dict = SafeDict(
         USER_EMAIL=learner_email,
         CODE=code,
     )
     email_body = format_email(email_template, placeholder_dict, greeting, closing)
-    send_offer_update_email.delay(learner_email, email_subject, email_body)
+    send_offer_update_email.delay(learner_email, subject, email_body)
 
 
 def send_assigned_offer_reminder_email(
+        subject,
         greeting,
         closing,
         learner_email,
@@ -204,6 +232,8 @@ def send_assigned_offer_reminder_email(
         code_expiration_date):
     """
     Arguments:
+        *subject*
+            The email subject
         *email_greeting*
             The email greeting (prefix)
         *email_closing*
@@ -219,8 +249,6 @@ def send_assigned_offer_reminder_email(
        *code_expiration_date*
            Date till code is valid.
     """
-
-    email_subject = settings.OFFER_REMINDER_EMAIL_SUBJECT
     email_template = settings.OFFER_REMINDER_EMAIL_TEMPLATE
     placeholder_dict = SafeDict(
         REDEEMED_OFFER_COUNT=redeemed_offer_count,
@@ -230,7 +258,7 @@ def send_assigned_offer_reminder_email(
         EXPIRATION_DATE=code_expiration_date
     )
     email_body = format_email(email_template, placeholder_dict, greeting, closing)
-    send_offer_update_email.delay(learner_email, email_subject, email_body)
+    send_offer_update_email.delay(learner_email, subject, email_body)
 
 
 def format_email(template, placeholder_dict, greeting, closing):
@@ -255,7 +283,9 @@ def format_email(template, placeholder_dict, greeting, closing):
     greeting = bleach.clean(greeting)
     closing = bleach.clean(closing)
     email_body = string.Formatter().vformat(template, SafeTuple(), placeholder_dict)
-    return greeting + email_body + closing
+    # \n\n is being treated as single line except of two lines in HTML template,
+    #  so separating them with &nbsp; tag to render them as expected.
+    return (greeting + email_body + closing).replace('\n', '\n&nbsp;')
 
 
 class SafeDict(dict):

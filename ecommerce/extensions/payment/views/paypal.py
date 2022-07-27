@@ -1,31 +1,29 @@
 """ Views for interacting with the payment processor. """
-from __future__ import absolute_import, unicode_literals
+
 
 import logging
 import os
+from io import StringIO
 
-import waffle
 from django.core.exceptions import MultipleObjectsReturned
 from django.core.management import call_command
 from django.db import transaction
-from django.http import Http404, HttpResponse, HttpResponseBadRequest
-from django.shortcuts import redirect
+from django.http import Http404, HttpResponse, HttpResponseBadRequest, HttpResponseRedirect
+from django.shortcuts import redirect, render
 from django.utils.decorators import method_decorator
 from django.utils.six import StringIO
+from django.urls import reverse
 from django.views.generic import View
-from edx_rest_api_client.client import EdxRestApiClient
-from edx_rest_api_client.exceptions import SlumberHttpBaseException
 from oscar.apps.partner import strategy
 from oscar.apps.payment.exceptions import PaymentError
 from oscar.core.loading import get_class, get_model
-from requests.exceptions import Timeout
 
-from ecommerce.core.url_utils import get_lms_url
+from ecommerce.core.url_utils import get_lms_url, get_lms_dashboard_url, get_lms_explore_courses_url
 from ecommerce.extensions.basket.utils import basket_add_organization_attribute
 from ecommerce.extensions.checkout.mixins import EdxOrderPlacementMixin
 from ecommerce.extensions.checkout.utils import get_receipt_page_url
-from ecommerce.extensions.offer.constants import DYNAMIC_DISCOUNT_FLAG
 from ecommerce.extensions.payment.processors.paypal import Paypal
+from ecommerce.extensions.payment.views import EolAlertMixin
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +37,7 @@ OrderTotalCalculator = get_class('checkout.calculators', 'OrderTotalCalculator')
 PaymentProcessorResponse = get_model('payment', 'PaymentProcessorResponse')
 
 
-class PaypalPaymentExecutionView(EdxOrderPlacementMixin, View):
+class PaypalPaymentExecutionView(EolAlertMixin, EdxOrderPlacementMixin, View):
     """Execute an approved PayPal payment and place an order for paid products as appropriate."""
 
     @property
@@ -54,28 +52,6 @@ class PaypalPaymentExecutionView(EdxOrderPlacementMixin, View):
     def dispatch(self, request, *args, **kwargs):
         return super(PaypalPaymentExecutionView, self).dispatch(request, *args, **kwargs)
 
-    def _add_dynamic_discount_to_request(self, basket):
-        # TODO: Remove as a part of REVMI-124 as this is a hacky solution
-        # The problem is that orders are being created after payment processing, and the discount is not
-        # saved in the database, so it needs to be calculated again in order to save the correct info to the
-        # order. REVMI-124 will create the order before payment processing, when we have the discount context.
-        if waffle.flag_is_active(self.request, DYNAMIC_DISCOUNT_FLAG) and basket.lines.count() == 1:
-            discount_lms_url = get_lms_url('/api/discounts/')
-            lms_discount_client = EdxRestApiClient(discount_lms_url,
-                                                   jwt=self.request.site.siteconfiguration.access_token)
-            ck = basket.lines.first().product.course_id
-            user_id = basket.owner.lms_user_id
-            try:
-                response = lms_discount_client.user(user_id).course(ck).get()
-                self.request.GET = self.request.GET.copy()
-                self.request.GET['discount_jwt'] = response.get('jwt')
-            except (SlumberHttpBaseException, Timeout) as error:
-                logger.warning(
-                    'Failed to get discount jwt from LMS. [%s] returned [%s]',
-                    discount_lms_url,
-                    error.response)
-            # END TODO
-
     def _get_basket(self, payment_id):
         """
         Retrieve a basket using a payment ID.
@@ -89,32 +65,26 @@ class PaypalPaymentExecutionView(EdxOrderPlacementMixin, View):
 
         """
         try:
-            basket = PaymentProcessorResponse.objects.get(
+            payment_responses = PaymentProcessorResponse.objects.filter(
                 processor_name=self.payment_processor.NAME,
                 transaction_id=payment_id
-            ).basket
+            )
+            if payment_responses.count() > 1:
+                logger.warning("Duplicate payment ID [%s] received from Paypal.", payment_id)
+                
+            basket = payment_responses.first().basket
             basket.strategy = strategy.Default()
-
-            # TODO: Remove as a part of REVMI-124 as this is a hacky solution
-            # The problem is that orders are being created after payment processing, and the discount is not
-            # saved in the database, so it needs to be calculated again in order to save the correct info to the
-            # order. REVMI-124 will create the order before payment processing, when we have the discount context.
-            self._add_dynamic_discount_to_request(basket)
-            # END TODO
 
             Applicator().apply(basket, basket.owner, self.request)
 
             basket_add_organization_attribute(basket, self.request.GET)
             return basket
-        except MultipleObjectsReturned:
-            logger.warning(u"Duplicate payment ID [%s] received from PayPal.", payment_id)
-            return None
         except Exception:  # pylint: disable=broad-except
             logger.exception(u"Unexpected error during basket retrieval while executing PayPal payment.")
             return None
 
     def get(self, request):
-        """Handle an incoming user returned to us by PayPal after approving payment."""
+        """Handle an incoming user returned to us by PayPal after APPROVING PAYMENT."""
         payment_id = request.GET.get('paymentId')
         payer_id = request.GET.get('PayerID')
         logger.info(u"Payment [%s] approved by payer [%s]", payment_id, payer_id)
@@ -139,19 +109,26 @@ class PaypalPaymentExecutionView(EdxOrderPlacementMixin, View):
                     return redirect(self.payment_processor.error_url)
         except:  # pylint: disable=bare-except
             logger.exception('Attempts to handle payment for basket [%d] failed.', basket.id)
-            return redirect(receipt_url)
+            self.send_simple_alert_to_eol(basket.site,"Error inesperado al procesar el pago en ecommerce. ", order_number=basket.order_number, payed=True, user=basket.owner, processor="Paypal")
+            return HttpResponseRedirect("{}?order={}".format(reverse('paypal:failure'), basket.order_number))
+            #return redirect(receipt_url)
 
         try:
             order = self.create_order(request, basket)
         except Exception:  # pylint: disable=broad-except
             # any errors here will be logged in the create_order method. If we wanted any
             # Paypal specific logging for this error, we would do that here.
-            return redirect(receipt_url)
+            logger.exception(self.order_placement_failure_msg, paypal_response, basket.id)
+            self.send_simple_alert_to_eol(basket.site,"Error inesperado al procesar el pago en ecommerce. ", order_number=basket.order_number, user=basket.owner, payed=True, processor="Paypal")
+            raise Http404("Hubo un error al cerrar la orden en ecommerce. Guarde su número de orden {}".format(basket.order_number))
+            #return redirect(receipt_url)
 
         try:
             self.handle_post_order(order)
         except Exception:  # pylint: disable=broad-except
-            self.log_order_placement_exception(basket.order_number, basket.id)
+            #self.log_order_placement_exception(basket.order_number, basket.id)
+            self.send_simple_alert_to_eol(basket.site,"Error inesperado al procesar el pago en ecommerce. ", order_number=basket.order_number, user=basket.owner, payed=True, processor="Paypal")
+            raise Http404("Hubo un error al cerrar la orden en ecommerce. Guarde su número de orden {}".format(basket.order_number))
 
         return redirect(receipt_url)
 
@@ -208,3 +185,20 @@ class PaypalProfileAdminView(View):
         logger.removeHandler(log_handler)
 
         return HttpResponse(output, content_type='text/plain', status=200 if success else 500)
+
+
+class PaypalErrorView(View):
+    """
+    Temporal error redirect
+    """
+    def get(self, request):
+        order = request.GET.get("order",'')
+        # Error context
+        context = {
+            "payment_support_email": request.site.siteconfiguration.payment_support_email,
+            "order_dashboard_url": get_lms_dashboard_url(),
+            "explore_courses_url": get_lms_explore_courses_url(),
+            "order_number": order,
+        }
+
+        return render(request, "edx/checkout/paypal_error.html",context)

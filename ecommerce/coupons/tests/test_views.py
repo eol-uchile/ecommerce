@@ -1,16 +1,14 @@
 # -*- coding: utf-8 -*-
-from __future__ import absolute_import
+
 
 import datetime
+import urllib
 from decimal import Decimal
 
 import ddt
 import httpretty
 import mock
 import pytz
-import six.moves.urllib.error  # pylint: disable=import-error
-import six.moves.urllib.parse  # pylint: disable=import-error
-import six.moves.urllib.request  # pylint: disable=import-error
 from django.conf import settings
 from django.http import HttpResponseRedirect
 from django.urls import reverse
@@ -58,7 +56,7 @@ ENTERPRISE_CUSTOMER_CATALOG = 'abc18838-adcb-41d5-abec-b28be5bfcc13'
 
 def format_url(base='', path='', params=None):
     if params:
-        return '{base}{path}?{params}'.format(base=base, path=path, params=six.moves.urllib.parse.urlencode(params))
+        return '{base}{path}?{params}'.format(base=base, path=path, params=urllib.parse.urlencode(params))
     return '{base}{path}'.format(base=base, path=path)
 
 
@@ -89,64 +87,74 @@ class VoucherIsValidTests(DiscoveryTestMixin, TestCase):
     def test_valid_voucher(self):
         """ Verify voucher_is_valid() assess that the voucher is valid. """
         voucher, product = prepare_voucher()
-        valid, msg = voucher_is_valid(voucher=voucher, products=[product], request=self.request)
+        valid, msg, hide_error_message = voucher_is_valid(voucher=voucher, products=[product], request=self.request)
 
         self.assertTrue(valid)
         self.assertEqual(msg, '')
+        self.assertEqual(hide_error_message, None)
 
     def test_no_voucher(self):
         """ Verify voucher_is_valid() assess that the voucher is invalid. """
-        valid, msg = voucher_is_valid(voucher=None, products=None, request=None)
+        valid, msg, hide_error_message = voucher_is_valid(voucher=None, products=None, request=None)
         self.assertFalse(valid)
         self.assertEqual(msg, 'Coupon does not exist.')
+        self.assertFalse(hide_error_message)
 
     def test_expired_voucher(self):
         """ Verify voucher_is_valid() assess that the voucher has expired. """
         start_datetime = now() - datetime.timedelta(days=20)
         end_datetime = now() - datetime.timedelta(days=10)
         voucher, product = prepare_voucher(start_datetime=start_datetime, end_datetime=end_datetime)
-        valid, msg = voucher_is_valid(voucher=voucher, products=[product], request=None)
+        valid, msg, hide_error_message = voucher_is_valid(voucher=voucher, products=[product], request=None)
         self.assertFalse(valid)
         self.assertEqual(msg, 'This coupon code has expired.')
+        self.assertTrue(hide_error_message)
 
     def test_future_voucher(self):
         """ Verify voucher_is_valid() assess that the voucher has not started yet. """
         start_datetime = now() + datetime.timedelta(days=10)
         end_datetime = now() + datetime.timedelta(days=20)
         voucher, product = prepare_voucher(start_datetime=start_datetime, end_datetime=end_datetime)
-        valid, msg = voucher_is_valid(voucher=voucher, products=[product], request=None)
+        valid, msg, hide_error_message = voucher_is_valid(voucher=voucher, products=[product], request=None)
         self.assertFalse(valid)
         self.assertEqual(msg, 'This coupon code is not yet valid.')
+        self.assertFalse(hide_error_message)
 
     def test_voucher_unavailable_to_buy(self):
         """ Verify that False is returned for unavailable products. """
         voucher, product = prepare_voucher()
         product.expires = pytz.utc.localize(datetime.datetime.min)
-        valid, __ = voucher_is_valid(voucher=voucher, products=[product], request=self.request)
+        valid, __, hide_error_message = voucher_is_valid(voucher=voucher, products=[product], request=self.request)
         self.assertFalse(valid)
+        self.assertFalse(hide_error_message)
 
     def test_omitting_unavailable_voucher(self):
         """ Verify if there are more than one product, that availability check is omitted. """
         voucher, product = prepare_voucher()
         product.expires = pytz.utc.localize(datetime.datetime.min)
         __, seat = self.create_course_and_seat()
-        valid, __ = voucher_is_valid(voucher=voucher, products=[product, seat], request=self.request)
+        valid, __, hide_error_message = voucher_is_valid(
+            voucher=voucher, products=[product, seat], request=self.request
+        )
         self.assertTrue(valid)
+        self.assertFalse(hide_error_message)
 
     def test_once_per_customer_voucher(self):
         """ Verify the coupon is valid for anonymous users. """
         voucher, product = prepare_voucher(usage=Voucher.ONCE_PER_CUSTOMER)
-        valid, msg = voucher_is_valid(voucher=voucher, products=[product], request=self.request)
+        valid, msg, hide_error_message = voucher_is_valid(voucher=voucher, products=[product], request=self.request)
         self.assertTrue(valid)
         self.assertEqual(msg, '')
+        self.assertFalse(hide_error_message)
 
     def assert_error_messages(self, voucher, product, user, error_msg):
         """ Assert the proper error message is returned. """
         voucher.offers.first().record_usage(discount={'freq': 1, 'discount': 1})
         self.request.user = user
-        valid, msg = voucher_is_valid(voucher=voucher, products=[product], request=self.request)
+        valid, msg, hide_error_message = voucher_is_valid(voucher=voucher, products=[product], request=self.request)
         self.assertFalse(valid)
         self.assertEqual(msg, error_msg)
+        self.assertFalse(hide_error_message)
 
     def test_usage_exceeded_coupon(self):
         """ Verify voucher_is_valid() assess that the voucher exceeded it's usage limit. """
@@ -236,9 +244,7 @@ class CouponOfferViewTests(ApiMockMixin, CouponMixin, DiscoveryTestMixin, Enterp
         self.client.logout()
         url = self.prepare_url_for_credit_seat()
         response = self.client.get(url)
-
-        testserver_login_url = self.get_full_url(reverse('login'))
-        expected_url = '{path}?next={next}'.format(path=testserver_login_url, next=six.moves.urllib.parse.quote(url))
+        expected_url = '{path}?next={next}'.format(path=reverse('login'), next=urllib.parse.quote(url))
         self.assertRedirects(response, expected_url, target_status_code=302)
 
     def test_credit_seat_response(self):
@@ -466,7 +472,8 @@ class CouponRedeemViewTests(CouponMixin, DiscoveryTestMixin, LmsApiMockMixin, En
         )
         self.assertEqual(
             response.context['error'],
-            'This coupon code is not valid for entitlement course product. Try a different course.'
+            'This coupon is not valid for purchasing a program. Try using this on an individual course in the program. '
+            'If you need assistance, contact edX support.'
         )
 
     @httpretty.activate
@@ -781,7 +788,7 @@ class CouponRedeemViewTests(CouponMixin, DiscoveryTestMixin, LmsApiMockMixin, En
 
     def assert_redirected_to_email_confirmation(self, response):
         expected_redirect_url = '/offers/email_confirmation/?{}'.format(
-            six.moves.urllib.parse.urlencode({'course_id': self.course.id})
+            urllib.parse.urlencode({'course_id': self.course.id})
         )
         self.assertIsInstance(response, HttpResponseRedirect)
         self.assertIn(expected_redirect_url, response.url)

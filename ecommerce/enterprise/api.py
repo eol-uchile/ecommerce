@@ -1,15 +1,19 @@
 """
 Methods for fetching enterprise API data.
 """
-from __future__ import absolute_import
+
 
 import logging
+from urllib.parse import urlencode
 
 from django.conf import settings
 from edx_django_utils.cache import TieredCache
-from six.moves.urllib.parse import urlencode
+from requests.exceptions import ConnectionError as ReqConnectionError
+from requests.exceptions import Timeout
+from slumber.exceptions import SlumberHttpBaseException
 
 from ecommerce.core.utils import get_cache_key
+from ecommerce.enterprise.utils import get_enterprise_id_for_current_request_user_from_jwt
 
 logger = logging.getLogger(__name__)
 
@@ -114,10 +118,13 @@ def catalog_contains_course_runs(site, course_run_ids, enterprise_customer_uuid,
     Determine if course runs are associated with the EnterpriseCustomer.
     """
     query_params = {'course_run_ids': course_run_ids}
+    api = site.siteconfiguration.enterprise_catalog_api_client
+
+    # Determine API resource to use
     api_resource_name = 'enterprise-customer'
     api_resource_id = enterprise_customer_uuid
     if enterprise_customer_catalog_uuid:
-        api_resource_name = 'enterprise_catalogs'
+        api_resource_name = 'enterprise-catalogs'
         api_resource_id = enterprise_customer_catalog_uuid
 
     cache_key = get_cache_key(
@@ -133,9 +140,27 @@ def catalog_contains_course_runs(site, course_run_ids, enterprise_customer_uuid,
     if contains_content_cached_response.is_found:
         return contains_content_cached_response.value
 
-    api = site.siteconfiguration.enterprise_api_client
     endpoint = getattr(api, api_resource_name)(api_resource_id)
     contains_content = endpoint.contains_content_items.get(**query_params)['contains_content_items']
     TieredCache.set_all_tiers(cache_key, contains_content, settings.ENTERPRISE_API_CACHE_TIMEOUT)
 
     return contains_content
+
+
+def get_enterprise_id_for_user(site, user):
+    enterprise_from_jwt = get_enterprise_id_for_current_request_user_from_jwt()
+    if enterprise_from_jwt:
+        return enterprise_from_jwt
+
+    try:
+        enterprise_learner_response = fetch_enterprise_learner_data(site, user)
+    except (AttributeError, ReqConnectionError, KeyError, SlumberHttpBaseException, Timeout) as exc:
+        logger.info('Unable to retrieve enterprise learner data for User: %s, Exception: %s', user, exc)
+        return None
+
+    try:
+        return enterprise_learner_response['results'][0]['enterprise_customer']['uuid']
+    except IndexError:
+        pass
+
+    return None

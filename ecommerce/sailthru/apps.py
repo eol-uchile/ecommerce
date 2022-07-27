@@ -1,4 +1,4 @@
-from __future__ import absolute_import
+
 
 from django.apps import AppConfig
 
@@ -11,4 +11,4 @@ class SailthruAppConfig(AppConfig):
         super(SailthruAppConfig, self).ready()
 
         # noinspection PyUnresolvedReferences
-        import ecommerce.sailthru.signals  # pylint: disable=unused-variable
+        import ecommerce.sailthru.signals  # pylint: disable=unused-import, import-outside-toplevel

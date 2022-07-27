@@ -1,5 +1,5 @@
 """Common settings and globals."""
-from __future__ import absolute_import
+
 
 import datetime
 import os
@@ -9,7 +9,6 @@ from os.path import abspath, basename, dirname, join, normpath
 from sys import path
 
 from django.utils.translation import ugettext_lazy as _
-from oscar import OSCAR_MAIN_TEMPLATE_DIR
 
 from ecommerce.core.constants import (
     ENTERPRISE_COUPON_ADMIN_ROLE,
@@ -66,6 +65,7 @@ DATABASES = {
         'HOST': 'localhost',
         'PORT': '',
         'ATOMIC_REQUESTS': True,
+        'CONN_MAX_AGE': 60,
     }
 }
 # END DATABASE CONFIGURATION
@@ -178,9 +178,6 @@ TEMPLATES = [
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
         'DIRS': (
             normpath(join(DJANGO_ROOT, 'templates')),
-            # Templates which override default Oscar templates
-            normpath(join(DJANGO_ROOT, 'templates/oscar')),
-            OSCAR_MAIN_TEMPLATE_DIR,
         ),
         'OPTIONS': {
             'loaders': [
@@ -199,7 +196,6 @@ TEMPLATES = [
                 'django.contrib.messages.context_processors.messages',
                 'django.template.context_processors.request',
                 'oscar.apps.search.context_processors.search_form',
-                'oscar.apps.promotions.context_processors.promotions',
                 'oscar.apps.checkout.context_processors.checkout',
                 'oscar.apps.customer.notifications.context_processors.notifications',
                 'oscar.core.context_processors.metadata',
@@ -225,7 +221,6 @@ MIDDLEWARE = (
     'edx_rest_framework_extensions.auth.jwt.middleware.JwtAuthCookieMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
-    'django.contrib.auth.middleware.SessionAuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.contrib.sites.middleware.CurrentSiteMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
@@ -287,6 +282,7 @@ DJANGO_APPS = [
     'django.contrib.contenttypes',
     'django.contrib.flatpages',
     'django.contrib.humanize',
+    'django.contrib.messages',
     'django.contrib.sessions',
     'django.contrib.sites',
     'django.contrib.staticfiles',
@@ -305,7 +301,7 @@ DJANGO_APPS = [
     # edx-drf-extensions
     'csrf.apps.CsrfAppConfig',  # Enables frontend apps to retrieve CSRF tokens.
     'rules.apps.AutodiscoverRulesConfig',
-    'xss_utils'
+    'xss_utils',
 ]
 
 # Apps specific to this project go here.
@@ -321,7 +317,6 @@ LOCAL_APPS = [
     'ecommerce.sailthru',
     'ecommerce.enterprise',
     'ecommerce.management',
-    'ecommerce.journals',  # TODO: journals dependency
 ]
 
 # See: https://docs.djangoproject.com/en/dev/ref/settings/#installed-apps
@@ -452,6 +447,7 @@ JWT_AUTH = {
     'JWT_PUBLIC_SIGNING_JWK_SET': None,
     'JWT_AUTH_COOKIE_HEADER_PAYLOAD': 'edx-jwt-cookie-header-payload',
     'JWT_AUTH_COOKIE_SIGNATURE': 'edx-jwt-cookie-signature',
+    'JWT_AUTH_HEADER_PREFIX': 'JWT',
 }
 
 # Service user for worker processes.
@@ -517,6 +513,7 @@ REST_FRAMEWORK = {
     'DEFAULT_FILTER_BACKENDS': (
         'rest_framework_datatables.filters.DatatablesFilterBackend',
     ),
+    'DEFAULT_SCHEMA_CLASS': 'rest_framework.schemas.coreapi.AutoSchema'
 }
 # END DJANGO REST FRAMEWORK
 
@@ -541,7 +538,7 @@ SESSION_COOKIE_SECURE = False
 # Default broker URL. See http://celery.readthedocs.io/en/latest/userguide/configuration.html#broker-url.
 # In order for tasks to be visible to the ecommerce worker, this must match the value of BROKER_URL
 # configured for the ecommerce worker!
-BROKER_URL = 'amqp://celery:celery@127.0.0.1:5672'
+BROKER_URL = 'redis://:celery@127.0.0.1:6379'
 
 # Disable connection pooling. Connections may be severed by load balancers.
 # This forces the application to connect explicitly to the broker each time
@@ -571,6 +568,8 @@ CELERY_ROUTES = {
     'ecommerce_worker.sailthru.v1.tasks.send_course_refund_email': {'queue': 'ecommerce.email_marketing'},
     'ecommerce_worker.sailthru.v1.tasks.send_offer_assignment_email': {'queue': 'ecommerce.email_marketing'},
     'ecommerce_worker.sailthru.v1.tasks.send_offer_update_email': {'queue': 'ecommerce.email_marketing'},
+    'ecommerce_worker.sailthru.v1.tasks.send_offer_usage_email': {'queue': 'ecommerce.email_marketing'},
+    'ecommerce_worker.sailthru.v1.tasks.send_code_assignment_nudge_email': {'queue': 'ecommerce.email_marketing'},
 }
 
 # Prevent Celery from removing handlers on the root logger. Allows setting custom logging handlers.
@@ -580,6 +579,12 @@ CELERYD_HIJACK_ROOT_LOGGER = False
 # Execute tasks locally (synchronously) instead of sending them to the queue.
 # See http://celery.readthedocs.io/en/latest/userguide/configuration.html#task-always-eager.
 CELERY_ALWAYS_EAGER = False
+
+# Specify allowed serializers that are consistent with Celery 3 defaults
+CELERY_TASK_SERIALIZER = 'pickle'
+CELERY_RESULT_SERIALIZER = 'pickle'
+CELERY_EVENT_SERIALIZER = 'json'
+CELERY_ACCEPT_CONTENT = ['json', 'pickle', 'yaml']
 # END CELERY
 
 
@@ -643,11 +648,15 @@ AFFILIATE_COOKIE_KEY = 'affiliate_id'
 
 CRISPY_TEMPLATE_PACK = 'bootstrap3'
 
-# ENTERPRISE APP CONFIGURATION
+# ENTERPRISE CONFIGURATION
 # URL for Enterprise service
 ENTERPRISE_SERVICE_URL = 'http://localhost:8000/enterprise/'
 # Cache enterprise response from Enterprise API.
 ENTERPRISE_API_CACHE_TIMEOUT = 300  # Value is in seconds
+
+ENTERPRISE_CATALOG_SERVICE_URL = 'http://localhost:18160/'
+
+ENTERPRISE_LEARNER_PORTAL_HOSTNAME = os.environ.get('ENTERPRISE_LEARNER_PORTAL_HOSTNAME', 'localhost:8734')
 
 # Name for waffle switch to use for enabling enterprise features on runtime.
 ENABLE_ENTERPRISE_ON_RUNTIME_SWITCH = 'enable_enterprise_on_runtime'
@@ -662,7 +671,7 @@ SYSTEM_TO_FEATURE_ROLE_MAPPING = {
     STUDENT_SUPPORT_ADMIN_ROLE: [ORDER_MANAGER_ROLE],
 }
 
-# END ENTERPRISE APP CONFIGURATION
+# END ENTERPRISE CONFIGURATION
 
 # DJANGO DEBUG TOOLBAR CONFIGURATION
 # http://django-debug-toolbar.readthedocs.org/en/latest/installation.html
@@ -701,12 +710,10 @@ edX Login: {USER_EMAIL}
 Access Code: {CODE}
 Expiration Date: {EXPIRATION_DATE}
 '''
-OFFER_ASSIGNMENT_EMAIL_SUBJECT = 'New edX course assignment'
 
 OFFER_REVOKE_EMAIL_TEMPLATE = '''
 Your Learning Manager has revoked access code {CODE} and it is no longer assigned to your edX account {USER_EMAIL}.
 '''
-OFFER_REVOKE_EMAIL_SUBJECT = 'edX Course Assignment Revoked'
 
 OFFER_REMINDER_EMAIL_TEMPLATE = '''
 You have redeemed this code {REDEEMED_OFFER_COUNT} time(s) out of {TOTAL_OFFER_COUNT} available course redemptions.
@@ -715,7 +722,12 @@ edX Login: {USER_EMAIL}
 Access Code: {CODE}
 Expiration Date: {EXPIRATION_DATE}
 '''
-OFFER_REMINDER_EMAIL_SUBJECT = 'Reminder on edX course assignment'
+
+OFFER_ASSIGNMEN_EMAIL_TEMPLATE_BODY_MAP = {
+    'assign': OFFER_ASSIGNMENT_EMAIL_TEMPLATE,
+    'revoke': OFFER_REVOKE_EMAIL_TEMPLATE,
+    'remind': OFFER_REMINDER_EMAIL_TEMPLATE,
+}
 
 # SAILTHRU settings
 SAILTHRU_KEY = 'sailthru key here'
@@ -726,6 +738,7 @@ USERNAME_REPLACEMENT_WORKER = "replace with valid username"
 CORS_ALLOW_CREDENTIALS = False
 ECOMMERCE_URL_ROOT = "http://localhost:8002"
 OSCAR_FROM_EMAIL = 'oscar@example.com'
+OSCAR_SLUG_ALLOW_UNICODE = True
 PLATFORM_NAME = 'Your Platform Name Here'
 SESSION_EXPIRE_AT_BROWSER_CLOSE = False
 SOCIAL_AUTH_REDIRECT_IS_HTTPS = False
@@ -755,10 +768,36 @@ ECOMMERCE_PAYMENT_PROCESSOR_CONFIG = {
             'sop_payment_page_url': 'https://testsecureacceptance.cybersource.com/silent/pay',
             'sop_profile_id': 'SET-ME-PLEASE',
             'sop_secret_key': 'SET-ME-PLEASE',
-            'transaction_key': 'SET-ME-PLEASE'
+            'transaction_key': 'SET-ME-PLEASE',
+            'flex_shared_secret_key_id': 'SET-ME-PLEASE',
+            'flex_shared_secret_key': 'SET-ME-PLEASE',
+        },
+        'cybersource-rest': {
+            'access_key': 'SET-ME-PLEASE',
+            'apple_pay_country_code': 'US',
+            'apple_pay_merchant_id_certificate_path': '/edx/etc/ssl/apple_pay_merchant.pem',
+            'apple_pay_merchant_id_domain_association': 'This value should also be in private configuration. '
+                                                        'It, too,\nwill span multiple lines.',
+            'apple_pay_merchant_identifier': 'merchant.com.example',
+            'cancel_page_url': '/checkout/cancel-checkout/',
+            'merchant_id': 'SET-ME-PLEASE',
+            'payment_page_url': 'https://testsecureacceptance.cybersource.com/pay',
+            'profile_id': 'SET-ME-PLEASE',
+            'receipt_page_url': '/checkout/receipt/',
+            'secret_key':  'SET-ME-PLEASE',
+            'send_level_2_3_details': True,
+            'soap_api_url': 'https://ics2wstest.ic3.com/commerce/1.x/transactionProcessor/'
+                            'CyberSourceTransaction_1.140.wsdl',
+            'sop_access_key': 'SET-ME-PLEASE',
+            'sop_payment_page_url': 'https://testsecureacceptance.cybersource.com/silent/pay',
+            'sop_profile_id': 'SET-ME-PLEASE',
+            'sop_secret_key': 'SET-ME-PLEASE',
+            'transaction_key': 'SET-ME-PLEASE',
+            'flex_shared_secret_key_id': 'SET-ME-PLEASE',
+            'flex_shared_secret_key': 'SET-ME-PLEASE',
         },
         'paypal': {
-            'cancel_url': '/checkout/cancel-checkout/',
+            'cancel_checkout_path': '/checkout/cancel-checkout/',
             'client_id': 'SET-ME-PLEASE',
             'client_secret': 'SET-ME-PLEASE',
             'error_url': '/checkout/error/',

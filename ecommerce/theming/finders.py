@@ -17,14 +17,13 @@ interface, as well.
 .. _Django-Pipeline: http://django-pipeline.readthedocs.org/
 .. _Django-Require: https://github.com/etianen/django-require
 """
-from __future__ import absolute_import
+
 
 import os
 from collections import OrderedDict
 
 from django.contrib.staticfiles import utils
 from django.contrib.staticfiles.finders import BaseFinder
-from django.utils import six
 
 from ecommerce.theming.helpers import get_themes
 from ecommerce.theming.storage import ThemeStorage
@@ -57,11 +56,17 @@ class ThemeFilesFinder(BaseFinder):
 
         super(ThemeFilesFinder, self).__init__(*args, **kwargs)
 
+    def check(self, **kwargs):  # pylint: disable=unused-argument
+        """
+        Verifies the finder is configured correctly.
+        """
+        return []  # pragma: no cover
+
     def list(self, ignore_patterns):
         """
         List all files in all theme storages.
         """
-        for storage in six.itervalues(self.storages):
+        for storage in self.storages.values():
             if storage.exists(''):  # check if storage location exists
                 for path in utils.get_files(storage, ignore_patterns):
                     yield path, storage

@@ -1,4 +1,4 @@
-from __future__ import absolute_import
+
 
 from django.utils.translation import ugettext_lazy as _
 from oscar.core.loading import get_model
@@ -13,7 +13,7 @@ PercentageDiscountBenefit = get_model('offer', 'PercentageDiscountBenefit')
 class EnterprisePercentageDiscountBenefit(BenefitWithoutRangeMixin, PercentageBenefitMixin, PercentageDiscountBenefit):
     """ Enterprise-related PercentageDiscountBenefit without an attached range. """
 
-    class Meta(object):
+    class Meta:
         app_label = 'enterprise'
         proxy = True
 
@@ -27,7 +27,7 @@ class EnterprisePercentageDiscountBenefit(BenefitWithoutRangeMixin, PercentageBe
 class EnterpriseAbsoluteDiscountBenefit(BenefitWithoutRangeMixin, AbsoluteBenefitMixin, AbsoluteDiscountBenefit):
     """ Enterprise-related AbsoluteDiscountBenefit without an attached range. """
 
-    class Meta(object):
+    class Meta:
         app_label = 'enterprise'
         proxy = True
 

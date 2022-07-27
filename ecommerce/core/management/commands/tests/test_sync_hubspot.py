@@ -1,13 +1,13 @@
 """
 Test the sync_hubspot management command
 """
-from __future__ import absolute_import
+
 
 from datetime import datetime, timedelta
+from io import StringIO
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
-from django.utils.six import StringIO
 from factory.django import get_model
 from mock import patch
 from slumber.exceptions import HttpClientError

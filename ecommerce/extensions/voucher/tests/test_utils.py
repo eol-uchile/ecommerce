@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-from __future__ import absolute_import, unicode_literals
+
 
 import uuid
 
@@ -21,7 +21,6 @@ from oscar.test.factories import (
     datetime,
     get_model
 )
-from six.moves import range
 
 from ecommerce.core.url_utils import get_ecommerce_url
 from ecommerce.coupons.tests.mixins import CouponMixin, DiscoveryMockMixin

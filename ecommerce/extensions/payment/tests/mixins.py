@@ -1,13 +1,14 @@
-from __future__ import absolute_import, unicode_literals
+
 
 import datetime
 import os
+import re
 from decimal import Decimal
+from urllib.parse import urljoin
 
 import ddt
 import mock
 import responses
-import six  # pylint: disable=ungrouped-imports
 from django.conf import settings
 from django.urls import reverse
 from factory.django import mute_signals
@@ -16,7 +17,6 @@ from oscar.apps.payment.exceptions import PaymentError, TransactionDeclined, Use
 from oscar.core.loading import get_class, get_model
 from oscar.test import factories
 from oscar.test.contextmanagers import mock_signal_receiver
-from six.moves.urllib.parse import urljoin
 from testfixtures import LogCapture
 
 from ecommerce.core.constants import ISO_8601_FORMAT
@@ -29,6 +29,7 @@ from ecommerce.extensions.payment.exceptions import (
     InvalidSignatureError,
     RedundantPaymentNotificationError
 )
+from ecommerce.extensions.payment.models import UserBillingInfo
 from ecommerce.extensions.payment.helpers import sign
 from ecommerce.extensions.payment.processors.cybersource import Cybersource
 from ecommerce.extensions.test.factories import create_basket
@@ -44,7 +45,7 @@ SourceType = get_model('payment', 'SourceType')
 post_checkout = get_class('checkout.signals', 'post_checkout')
 
 
-class PaymentEventsMixin(object):
+class PaymentEventsMixin:
 
     DUPLICATE_ORDER_LOGGER_NAME = 'ecommerce.extensions.checkout.mixins'
 
@@ -161,7 +162,7 @@ class CybersourceMixin(PaymentEventsMixin):
         """
         reason_code = kwargs.get('reason_code', '100')
         req_reference_number = kwargs.get('req_reference_number', basket.order_number)
-        total = six.text_type(basket.total_incl_tax)
+        total = str(basket.total_incl_tax)
         auth_amount = auth_amount or total
 
         notification = {
@@ -199,7 +200,7 @@ class CybersourceMixin(PaymentEventsMixin):
         return notification
 
     def mock_cybersource_wsdl(self):
-        files = ('CyberSourceTransaction_1.115.wsdl', 'CyberSourceTransaction_1.115.xsd')
+        files = ('CyberSourceTransaction_1.166.wsdl', 'CyberSourceTransaction_1.166.xsd')
 
         for filename in files:
             path = os.path.join(os.path.dirname(__file__), filename)
@@ -223,7 +224,7 @@ class CybersourceMixin(PaymentEventsMixin):
         </wsse:Security>
     </soap:Header>
     <soap:Body>
-        <c:replyMessage xmlns:c="urn:schemas-cybersource-com:transaction-data-1.115">
+        <c:replyMessage xmlns:c="urn:schemas-cybersource-com:transaction-data-1.166">
             <c:merchantReferenceCode>{merchant_reference_code}</c:merchantReferenceCode>
             <c:requestID>{request_id}</c:requestID>
             <c:decision>{decision}</c:decision>
@@ -239,6 +240,9 @@ class CybersourceMixin(PaymentEventsMixin):
                 <c:requestDateTime>2017-06-12T23:40:14Z</c:requestDateTime>
                 <c:amount>{amount}</c:amount>
                 <c:reconciliationID>10595141283</c:reconciliationID>
+                <c:authorizationCode>831000</c:authorizationCode>
+                <c:processorResponse>000</c:processorResponse>
+                <c:paymentNetworkTransactionID>558196000003814</c:paymentNetworkTransactionID>
             </c:ccCreditReply>
         </c:replyMessage>
     </soap:Body>
@@ -278,7 +282,7 @@ class CybersourceMixin(PaymentEventsMixin):
             'locale': settings.LANGUAGE_CODE,
             'transaction_type': 'sale',
             'reference_number': basket.order_number,
-            'amount': six.text_type(basket.total_incl_tax),
+            'amount': str(basket.total_incl_tax),
             'currency': basket.currency,
             'override_custom_receipt_page': basket.site.siteconfiguration.build_ecommerce_url(
                 reverse('cybersource:redirect')
@@ -335,7 +339,7 @@ class CybersourceMixin(PaymentEventsMixin):
                 </wsse:Security>
             </soap:Header>
             <soap:Body>
-                <c:replyMessage xmlns:c="urn:schemas-cybersource-com:transaction-data-1.115">
+                <c:replyMessage xmlns:c="urn:schemas-cybersource-com:transaction-data-1.166">
                     <c:merchantReferenceCode>EDX-100045</c:merchantReferenceCode>
                     <c:requestID>4996329373316728804010</c:requestID>
                     <c:decision>{decision}</c:decision>
@@ -467,7 +471,7 @@ class CybersourceNotificationTestsMixin(CybersourceMixin):
         error_message = (
             'CyberSource payment failed due to [{error_class}] for transaction [{transaction_id}], order '
             '[{order_number}], and basket [{basket_id}]. The complete payment response [Unknown Error] was recorded '
-            'in entry [{response_id}].'
+            'in entry [{response_id}]. Processed by [cybersource].'
         )
         self._test_payment_handling_errors(error_class, log_level, message_prefix + error_message, error_class_name)
 
@@ -475,10 +479,11 @@ class CybersourceNotificationTestsMixin(CybersourceMixin):
         (ExcessivePaymentForOrderError, 'INFO', 'Received duplicate CyberSource payment notification with different '
                                                 'transaction ID for basket [{basket_id}] which is associated with an '
                                                 'existing order [{order_number}]. Payment collected twice, '
-                                                'request a refund.'),
+                                                'request a refund. Processed by [cybersource].'),
         (RedundantPaymentNotificationError, 'INFO', 'Received redundant CyberSource payment notification with same '
                                                     'transaction ID for basket [{basket_id}] which is associated with '
-                                                    'an existing order [{order_number}]. No payment was collected.')
+                                                    'an existing order [{order_number}]. No payment was collected. '
+                                                    'Processed by [cybersource].')
     )
     @ddt.unpack
     def test_payment_handling_unique_errors(self, error_class, log_level, error_message):
@@ -512,10 +517,9 @@ class CybersourceNotificationTestsMixin(CybersourceMixin):
 
         # Verify that anticipated errors are handled gracefully.
         with mock.patch.object(
-            self.view,
-            'handle_order_placement',
-            side_effect=exception
-        ) as fake_handle_order_placement:
+                self.view,
+                'handle_order_placement',
+                side_effect=exception) as fake_handle_order_placement:
             error_message = \
                 'Order Failure: {payment_processor} payment was received, but an order for basket [{basket_id}] ' \
                 'could not be placed.'.format(payment_processor='Cybersource', basket_id=self.basket.id)
@@ -551,7 +555,7 @@ class CybersourceNotificationTestsMixin(CybersourceMixin):
         notification = self.generate_notification(self.basket, billing_address=self.billing_address)
         msg = (
             'Received CyberSource payment notification for basket [{id}] '
-            'which is in a non-frozen state, [{status}]'
+            'which is in a non-frozen state, [{status}]. Processed by [cybersource].'
         ).format(
             id=self.basket.id,
             status=status
@@ -585,7 +589,7 @@ class CybersourceNotificationTestsMixin(CybersourceMixin):
                 ),
             )
 
-    def test_unexpected_validate_notification_error(self):
+    def test_unexpected_validate_order_completion_error(self):
         """ Verify the view logs and redirects to the error page when the payment unexpectedly fails. """
         notification = self.generate_notification(self.basket)
 
@@ -602,7 +606,7 @@ class CybersourceNotificationTestsMixin(CybersourceMixin):
                         'ERROR',
                         (
                             'Unhandled exception processing CyberSource payment notification for transaction [{}], '
-                            'order [{}], and basket [{}].'.format(
+                            'order [{}], and basket [{}]. Processed by [cybersource].'.format(
                                 notification.get('transaction_id'),
                                 self.basket.order_number,
                                 self.basket.id,
@@ -625,7 +629,8 @@ class CybersourceNotificationTestsMixin(CybersourceMixin):
                     logger_name,
                     'ERROR',
                     (
-                        'Error processing order for transaction [{}], with order [{}] and basket [{}].'.format(
+                        'Error processing order for transaction [{}], with order [{}] and basket [{}]. '
+                        'Processed by [cybersource].'.format(
                             notification.get('transaction_id'),
                             self.basket.order_number,
                             self.basket.id,
@@ -640,7 +645,7 @@ class CybersourceNotificationTestsMixin(CybersourceMixin):
         """ Ensure notifications are handled properly with or without keys/values present for optional fields. """
 
         with mock.patch(
-            'ecommerce.extensions.payment.views.cybersource.{}.handle_order_placement'.format(self.view.__name__)
+                'ecommerce.extensions.payment.views.cybersource.{}.handle_order_placement'.format(self.view.__name__)
         ) as mock_placement_handler:
             def check_notification_address(notification, expected_address):
                 self.client.post(self.path, notification)
@@ -742,7 +747,8 @@ class CybersourceNotificationTestsMixin(CybersourceMixin):
         if mock_value:
             duplicate_reference_message = (
                 'Received CyberSource payment notification for basket [{}] which is associated '
-                'with existing order [{}]. No payment was collected, and no new order will be created.'
+                'with existing order [{}]. No payment was collected, and no new order will be created. '
+                'Processed by [cybersource].'
             ).format(self.basket.id, self.basket.order_number)
         else:
             duplicate_reference_message = ''
@@ -774,7 +780,7 @@ class CybersourceNotificationTestsMixin(CybersourceMixin):
     def _get_payment_notification_message(self, notification):
         return (
             'Received CyberSource payment notification for transaction [{}], associated with order [{}] and basket '
-            '[{}].'
+            '[{}]. Processed by [cybersource].'
         ).format(
             notification.get('transaction_id'),
             self.basket.order_number,
@@ -812,7 +818,7 @@ class CybersourceNotificationTestsMixin(CybersourceMixin):
             )
 
 
-class PaypalMixin(object):
+class PaypalMixin:
     """Mixin with helper methods for mocking PayPal API responses."""
     APPROVAL_URL = 'https://api.sandbox.paypal.com/fake-approval-url'
     EMAIL = 'test-buyer@paypal.com'
@@ -856,8 +862,9 @@ class PaypalMixin(object):
         self.mock_api_response('/v1/oauth2/token', oauth2_response, rsps=rsps)
 
     def get_payment_creation_response_mock(self, basket, state=PAYMENT_CREATION_STATE, approval_url=APPROVAL_URL):
-        total = six.text_type(basket.total_incl_tax)
+        total = str(basket.total_incl_tax)
         payment_creation_response = {
+            'application_context': {'landing_page': 'Billing'},
             'create_time': '2015-05-04T18:18:27Z',
             'id': self.PAYMENT_ID,
             'intent': 'sale',
@@ -894,7 +901,7 @@ class PaypalMixin(object):
                         {
                             'quantity': line.quantity,
                             'name': line.product.title,
-                            'price': six.text_type(line.line_price_incl_tax_incl_discounts / line.quantity),
+                            'price': str(line.line_price_incl_tax_incl_discounts / line.quantity),
                             'currency': line.stockrecord.price_currency,
                         }
                         for line in basket.all_lines()
@@ -949,8 +956,9 @@ class PaypalMixin(object):
     def mock_payment_execution_response(self, basket, state=PAYMENT_EXECUTION_STATE, payer_info=None):
         if payer_info is None:
             payer_info = self.PAYER_INFO
-        total = six.text_type(basket.total_incl_tax)
+        total = str(basket.total_incl_tax)
         payment_execution_response = {
+            'application_context': {'landing_page': 'Billing'},
             'create_time': '2015-05-04T15:55:27Z',
             'id': self.PAYMENT_ID,
             'intent': 'sale',
@@ -979,7 +987,7 @@ class PaypalMixin(object):
                         {
                             'quantity': line.quantity,
                             'name': line.product.title,
-                            'price': six.text_type(line.line_price_incl_tax_incl_discounts / line.quantity),
+                            'price': str(line.line_price_incl_tax_incl_discounts / line.quantity),
                             'currency': line.stockrecord.price_currency,
                         }
                         for line in basket.all_lines()
@@ -1043,3 +1051,252 @@ class PaypalMixin(object):
         root = 'https://api.sandbox.paypal.com' if mode == 'sandbox' else 'https://api.paypal.com'
 
         return urljoin(root, path)
+
+
+class CyberSourceRESTAPIMixin:
+    def convertToCybersourceWireFormat(self, processor_json):
+        # `deserialize` maps keys used by the REST api into a python-friendly convention.
+        # This undoes that mapping to make it easier to add recorded responses to tests.
+        return re.sub(
+            r'([a-z])_([a-z])',
+            lambda x: x.group(1) + x.group(2).upper(),
+            processor_json
+        ).replace('links', '_links').replace('_self', 'self')
+        
+class BoletaMixin:
+    """
+    Boleta Mixin that provides
+    - a standard settings override.
+    - a user billing info creation tool, that's necessary to create boletas.
+    - mock methods for the ventas API with standard responses.
+
+    Each tests that mocks a response requires the @responses.activate decorator
+    """
+
+    BOLETA_SETTINGS = {
+        "enabled": True,
+        "send_boleta_email": False,
+        "generate_on_payment": True,
+        "team_email": "test@localhost",
+        "halt_on_boleta_failure": True,
+        "client_id": "secret",
+        "client_secret": "secret",
+        "client_scope": "dte:tdo",
+        "config_centro_costos": "secret",
+        "config_cuenta_contable": "secret",
+        "config_sucursal": "secret",
+        "config_reparticion": "secret",
+        "config_identificador_pos": "secret",
+        "config_ventas_url": "https://ventas-test.uchile.cl/ventas-api-front/api/v1",
+    }
+
+    BOLETA_SETTINGS_DISABLED = {
+        "enabled": False
+    }
+
+    BILLING_INFO_FORM = {
+        "billing_district": "district",
+        "billing_city": "city",
+        "billing_address": "address",
+        "billing_country": "CL",
+        "id_number": "1-9",
+        "id_option": "0",
+        "id_other": "",
+        "first_name": "first_name last_name",
+        "last_name_1": "last_name_1",
+        "last_name_2": "",
+        "payment_processor": "webpay"
+    }
+
+    BOLETA_DATE = "2020-03-01T00:00:00"
+
+    def make_billing_info_helper(self, id_type, country_code, basket, processor="webpay"):
+        billing_info = UserBillingInfo(
+            billing_district="district",
+            billing_city="city",
+            billing_address="address",
+            billing_country_iso2=country_code,
+            id_number="1-9",
+            id_option=id_type,
+            id_other="",
+            first_name="name name",
+            last_name_1="last name",
+            basket=basket,
+            payment_processor=processor,
+        )
+        billing_info.save()
+        return billing_info
+
+    def mock_boleta_auth(self):
+        responses.add(
+            method=responses.POST,
+            url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/authorization-token',
+            json={"access_token": "test", "codigoSII": "codigo sucursal",
+                  "repCodigo": "codigo reparticion", "expires_in": 299}
+        )
+
+    def mock_boleta_creation(self, boleta_id="id"):
+        responses.add(
+            method=responses.POST,
+            url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/ventas',
+            json={"id": boleta_id}
+        )
+
+    def mock_boleta_details(self, total):
+        responses.add(
+            method=responses.GET,
+            url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/ventas/id',
+            json={
+                "boleta": {
+                    "fechaEmision": self.BOLETA_DATE,
+                    "folio": "folio"
+                },
+                "recaudaciones": [{"monto": int(total)}]
+            }
+        )
+
+    def mock_boleta_get_boletas(self, since, status="CONTABILIZADA", total=10, order_number="UA-100001"):
+        responses.add(
+            method=responses.GET,
+            url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/ventas/?fecha-desde={}&estado={}'.format(
+                since, status),
+            json=[{
+                "boleta": {
+                    "fechaEmision": self.BOLETA_DATE,
+                    "folio": "folio"
+                },
+                "id": "id",
+                "recaudaciones": [{"monto": int(total), "voucher": order_number}]
+                }]
+            
+        )
+
+    def mock_boleta_get_boletas_custom(self, since, json_response=[], status="CONTABILIZADA"):
+        responses.add(
+            method=responses.GET,
+            url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/ventas/?fecha-desde={}&estado={}'.format(
+                since, status),
+            json=json_response
+        )
+
+    def mock_boleta_auth_refused(self):
+        responses.add(
+            method=responses.POST,
+            url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/authorization-token',
+            json={"message": "error auth"},
+            status=403
+        )
+
+    def mock_boleta_creation_500(self):
+        responses.add(
+            method=responses.POST,
+            url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/ventas',
+            status=500
+        )
+
+    def mock_boleta_details_404(self, boleta_id="id"):
+        responses.add(
+            method=responses.GET,
+            url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/ventas/{}'.format(
+                boleta_id),
+            status=404
+        )
+
+    def mock_boleta_get_boletas_500(self, since, status="CONTABILIZADA"):
+        responses.add(
+            method=responses.GET,
+            url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/ventas/?fecha-desde={}&estado={}'.format(
+                since, status),
+            status=500   
+        )
+    
+    def mock_boleta_get_file(self, id):
+        responses.add(
+            method=responses.GET,
+            url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/ventas/{}/boletas/pdf'.format(id),
+            body="I'm a PDF file"
+        )
+
+    def mock_boleta_get_file_404(self, id):
+        responses.add(
+            method=responses.GET,
+            url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/ventas/{}/boletas/pdf'.format(id),
+            status=404
+        )
+    
+    def mock_boleta_get_file_500(self, id):
+        responses.add(
+            method=responses.GET,
+            url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/ventas/{}/boletas/pdf'.format(id),
+            status=500
+        )
+
+class TransbankMixin:
+    """
+    Transbank Mixin that provides
+    - a standard settings override.
+    - mock methods for the Transbank service with standard responses.
+
+    Each tests that mocks a response requires the @responses.activate decorator
+    """
+
+    def get_transaction_details_helper(self, status='INITIALIZED', amount=0, order="", response_code=0):
+        """Helper function"""
+
+        return {'accounting_date': '1223',
+            'amount': amount,#float(self.basket.total_incl_tax),
+            'authorization_code': '1213',
+            'buy_order': order,#self.basket.order_number,
+            'card_detail': {'card_number': '6623'},
+            'installments_number': 0,
+            'payment_type_code': 'VN',
+            'response_code': response_code,#0,
+            'session_id': 'EOL-100049',
+            'status': status,
+            'transaction_date': '2020-12-23T17:50:37.179Z',
+            'vci': 'TSY'}
+    
+    def mock_transbank_initial_token_response(self, resp=None):
+        json_resp = {"token": "test-token", "url": "http://webpay.cl"}
+        if resp is not None:
+            json_resp = resp
+        responses.add(
+            method=responses.POST,
+            url='http://transbank:5000/process-webpay',
+            json=json_resp
+        )
+    
+    def mock_transbank_initial_token_response_error(self, error=403):
+        responses.add(
+            method=responses.POST,
+            url='http://transbank:5000/process-webpay',
+            status=error
+        )
+    
+    def mock_transbank_response(self, status='AUTHORIZED', amount=0, order="", response_code=0):
+        responses.add(
+            method=responses.POST,
+            url='http://transbank:5000/get-transaction',
+            json=self.get_transaction_details_helper(status, amount, order, response_code)
+        )
+    
+    def mock_transbank_response_error(self, status=403):
+        responses.add(
+            method=responses.POST,
+            url='http://transbank:5000/get-transaction',
+            status=status
+        )
+    
+    def mock_transbank_status_response(self, status='INITIALIZED', amount=0, order="", response_code=0):
+        responses.add(
+            method=responses.POST,
+            url='http://transbank:5000/transaction-status',
+            json=self.get_transaction_details_helper(status, amount, order, response_code)
+        )
+    
+    def mock_transbank_status_response_error(self, status=403):
+        responses.add(
+            method=responses.POST,
+            url='http://transbank:5000/transaction-status',
+            status=status
+        )

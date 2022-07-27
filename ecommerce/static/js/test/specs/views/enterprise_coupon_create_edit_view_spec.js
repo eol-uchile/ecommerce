@@ -60,6 +60,10 @@ define([
                 expect(model.save).toHaveBeenCalled();
             });
 
+            it('should exist the save and add more button in create view', function() {
+                expect(view.$('.submit-add-more').html()).toEqual('Create and Add More');
+            });
+
             it('should disable catalog field when no customer is selected', function() {
                 view.$('[name=enterprise_customer]').val(null).trigger('change');
                 expect(view.$('select[name=enterprise_customer_catalog]').prop('disabled')).toBe(true);
@@ -89,6 +93,9 @@ define([
                     var voucherType = view.$el.find('[name=voucher_type]'),
                         startDate = Utils.stripTimezone(model.get('start_date')),
                         endDate = Utils.stripTimezone(model.get('end_date'));
+                    expect(view.$el.find('[name=inactive]').val()).toEqual(
+                        model.get('inactive') ? 'inactive' : 'active'
+                    );
                     expect(view.$el.find('[name=title]').val()).toEqual(model.get('title'));
                     expect(view.$el.find('[name=code_type]').val()).toEqual('Enrollment code');
                     expect(view.$el.find('[name=start_date]').val()).toEqual(startDate);
@@ -109,6 +116,11 @@ define([
                         model.get('prepaid_invoice_amount').toString()
                     );
                 });
+
+                it('should not exist the save and add more button in edit view', function() {
+                    expect(view.$('.submit-add-more').html()).toEqual('');
+                });
+
 
                 it('should disable catalog field when no customer is selected', function() {
                     view.$('[name=enterprise_customer]').val(null).trigger('change');

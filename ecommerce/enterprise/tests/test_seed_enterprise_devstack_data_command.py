@@ -2,9 +2,6 @@
 """
 Contains the tests for creating an coupon associated with enterprise customer and catalog.
 """
-
-from __future__ import absolute_import, unicode_literals
-
 from uuid import uuid4
 
 from django.core.management import call_command
@@ -163,6 +160,7 @@ class SeedEnterpriseDevstackDataTests(TransactionTestCase):
     def test_create_coupon(self, mock_request):
         """ Verify `create_coupon` returns the correct value """
         ecommerce_api_url = self.command.site.build_ecommerce_url() + '/api/v2'
+        enterprise_catalog_api_url = self.command.site.enterprise_catalog_api_url + '/enterprise-catalogs'
         self.command.enterprise_customer = {'uuid': self.ent_customer_uuid}
         self.command.enterprise_catalog = {'uuid': self.ent_catalog_uuid}
 
@@ -171,7 +169,8 @@ class SeedEnterpriseDevstackDataTests(TransactionTestCase):
             status_code=200,
             json=lambda: expected,
         )
-        result = self.command.create_coupon(ecommerce_api_url=ecommerce_api_url)
+        result = self.command.create_coupon(ecommerce_api_url=ecommerce_api_url,
+                                            enterprise_catalog_api_url=enterprise_catalog_api_url)
         mock_request.assert_called()
         assert result == expected
 
@@ -179,15 +178,19 @@ class SeedEnterpriseDevstackDataTests(TransactionTestCase):
     def test_create_coupon_no_customer(self, mock_request):
         """ Verify `create_coupon` returns the correct value """
         ecommerce_api_url = self.command.site.build_ecommerce_url() + '/api/v2'
-        self.command.create_coupon(ecommerce_api_url=ecommerce_api_url)
+        enterprise_catalog_api_url = self.command.site.enterprise_catalog_api_url + '/enterprise-catalogs'
+        self.command.create_coupon(ecommerce_api_url=ecommerce_api_url,
+                                   enterprise_catalog_api_url=enterprise_catalog_api_url)
         mock_request.assert_not_called()
 
     @patch('requests.post')
     def test_create_coupon_no_catalog(self, mock_request):
         """ Verify `create_coupon` returns the correct value """
         ecommerce_api_url = self.command.site.build_ecommerce_url() + '/api/v2'
+        enterprise_catalog_api_url = self.command.site.enterprise_catalog_api_url + '/enterprise-catalogs'
         self.command.enterprise_customer = {'uuid': self.ent_customer_uuid}
-        self.command.create_coupon(ecommerce_api_url=ecommerce_api_url)
+        self.command.create_coupon(ecommerce_api_url=ecommerce_api_url,
+                                   enterprise_catalog_api_url=enterprise_catalog_api_url)
         mock_request.assert_not_called()
 
     @patch('requests.post')

@@ -44,6 +44,15 @@ define([
             ],
 
             couponBindings: {
+                'input[name=inactive]': {
+                    observe: 'inactive',
+                    onGet: function(val) {
+                        return val ? 'inactive' : 'active';
+                    },
+                    onSet: function(val) {
+                        return val === 'inactive';
+                    }
+                },
                 'input[name=enterprise_customer]': {
                     observe: 'enterprise_customer',
                     onGet: function(val) {
@@ -133,16 +142,17 @@ define([
                 'change [name=tax_deduction]': 'toggleTaxDeductedSourceField',
                 'click .external-link': 'routeToLink',
                 'click #cancel-button': 'cancelButtonClicked',
+                'click .submit-add-more': 'submitAndAddMore',
                 'change select[name=enterprise_customer_catalog]': 'updateEnterpriseCatalogDetailsLink'
             },
 
             updateEnterpriseCatalogDetailsLink: function() {
-                var enterpriseAPIURL = this.model.get('enterprise_catalog_url'),
+                var enterpriseAPIURL = this.model.get('enterprise_catalog_content_metadata_url'),
                     enterpriseCatalog = this.$('[name=enterprise_customer_catalog]').val();
 
                 if (enterpriseCatalog) {
                     this.$('#enterprise-catalog-details')
-                        .attr('href', enterpriseAPIURL + enterpriseCatalog)
+                        .attr('href', enterpriseAPIURL)
                         .addClass('external-link')
                         .removeClass('hidden');
                 } else {
@@ -151,6 +161,11 @@ define([
                         .removeClass('external-link')
                         .addClass('hidden');
                 }
+            },
+
+            submitAndAddMore: function() {
+                this.$('.submit-add-more').attr('data-url', 'new');
+                $('form.coupon-form-view').submit();
             },
 
             enterpriseCustomerAutocomplete: function() {
@@ -221,6 +236,7 @@ define([
                     'enterprise_customer',
                     'enterprise_customer_catalog',
                     'notify_email',
+                    'inactive',
                     'invoice_discount_type',
                     'invoice_discount_value',
                     'invoice_number',
@@ -235,7 +251,8 @@ define([
                     'email_domains',
                     'contract_discount_value',
                     'contract_discount_type',
-                    'prepaid_invoice_amount'
+                    'prepaid_invoice_amount',
+                    'sales_force_id'
                 ];
             },
 
@@ -256,7 +273,27 @@ define([
                     this.setLimitToElement(this.$('[name=contract_discount_value]'), 100, 0);
                 }
                 this._super();
+                if (this.editing) {
+                    this.$('.submit-add-more').hide();
+                } else {
+                    this.$('.submit-add-more').html(gettext('Create and Add More'));
+                }
                 return this;
+            },
+            /**
+             * Override default saveSuccess.
+             */
+            saveSuccess: function(model, response) {
+                var nextUrl = $('.submit-add-more').attr('data-url');
+                if (this.editing || _.isUndefined(nextUrl)) {
+                    nextUrl = response.coupon_id ? response.coupon_id.toString() : response.id.toString();
+                    this.goTo(nextUrl);
+                } else {
+                    $('.submit-add-more').removeAttr('data-url');
+                    // Backbone's history/router will do nothing when trying to load the same URL
+                    // in case of create and add more that's why force the route instead.
+                    Backbone.history.loadUrl(nextUrl);
+                }
             }
         });
     }

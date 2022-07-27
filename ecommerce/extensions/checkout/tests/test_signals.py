@@ -1,4 +1,4 @@
-from __future__ import absolute_import
+
 
 import json
 
@@ -14,6 +14,7 @@ from ecommerce.core.tests import toggle_switch
 from ecommerce.coupons.tests.mixins import CouponMixin
 from ecommerce.courses.tests.factories import CourseFactory
 from ecommerce.courses.utils import mode_for_product
+from ecommerce.extensions.basket.tests.test_utils import TEST_BUNDLE_ID
 from ecommerce.extensions.checkout.signals import send_course_purchase_email, track_completed_order
 from ecommerce.extensions.checkout.utils import get_receipt_page_url
 from ecommerce.extensions.test.factories import create_order, prepare_voucher
@@ -284,14 +285,16 @@ class SignalTests(ProgramTestMixin, CouponMixin, TestCase):
         BasketAttribute.objects.update_or_create(
             basket=order.basket,
             attribute_type=BasketAttributeType.objects.get(name=BUNDLE),
-            value_text='test_bundle'
+            value_text=TEST_BUNDLE_ID
         )
 
         # Tracks a full bundle order
         with mock.patch('ecommerce.extensions.checkout.signals.get_program',
                         mock.Mock(return_value=self.mock_get_program_data(True))):
             track_completed_order(None, order)
-            properties = self._generate_event_properties(order, bundle_id='test_bundle', fullBundle=True)
+            properties = self._generate_event_properties(
+                order, bundle_id=TEST_BUNDLE_ID, fullBundle=True
+            )
             mock_track.assert_called_once_with(order.site, order.user, 'Order Completed', properties)
 
         # Tracks a partial bundle order
@@ -299,7 +302,7 @@ class SignalTests(ProgramTestMixin, CouponMixin, TestCase):
                         mock.Mock(return_value=self.mock_get_program_data(False))):
             mock_track.reset_mock()
             track_completed_order(None, order)
-            properties = self._generate_event_properties(order, bundle_id='test_bundle')
+            properties = self._generate_event_properties(order, bundle_id=TEST_BUNDLE_ID)
             mock_track.assert_called_once_with(order.site, order.user, 'Order Completed', properties)
 
     def test_track_completed_discounted_order_with_voucher(self):

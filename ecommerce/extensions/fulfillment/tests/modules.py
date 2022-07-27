@@ -1,4 +1,4 @@
-from __future__ import absolute_import
+
 
 from ecommerce.extensions.fulfillment.modules import BaseFulfillmentModule
 from ecommerce.extensions.fulfillment.status import LINE
@@ -6,16 +6,16 @@ from ecommerce.extensions.fulfillment.status import LINE
 
 class MockFulfillmentModule(BaseFulfillmentModule):
     def supports_line(self, line):
-        pass
+        """ Supported lines for refund. """
 
     def get_supported_lines(self, lines):
-        pass
+        """Returns a list of lines this mock module supposedly supports."""
 
     def fulfill_product(self, order, lines, email_opt_in=False):
-        pass
+        """Fulfill product. Mark all lines success."""
 
     def revoke_line(self, line):
-        pass
+        """ Always revoke the product. """
 
 
 class FakeFulfillmentModule(MockFulfillmentModule):

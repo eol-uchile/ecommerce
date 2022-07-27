@@ -1,26 +1,27 @@
--r pins.txt
+-c pins.txt
 
 analytics-python
 bleach
 coreapi
-django<2.0
+cybersource-rest-client-python
+django<3.0
 django-compressor
+django-config-models>=1.0.0         # Configuration models for Django allowing config management with auditing
 django-cors-headers                 #  Used to allow to configure CORS headers for cross-domain requests
-django-crispy-forms
-django_extensions==1.9.9
-django-filter==1.0.4
-django-libsass==0.5
-django-oscar<1.7
+django-crispy-forms<1.9.0
+django_extensions
+django-filter
+django-libsass
+django-oscar
 django-rest-swagger
 django-simple-history
 django-solo
 django-threadlocals
-django-waffle<0.15.0                # Unpinning this causes multiple test failures
-djangorestframework==3.6.4
+django-waffle
+djangorestframework
 djangorestframework-csv
 djangorestframework-datatables
-djangorestframework-jwt
-drf-extensions==0.3.1
+drf-extensions
 edx-auth-backends
 edx-django-release-util
 edx-django-utils
@@ -30,11 +31,11 @@ edx-ecommerce-worker
 edx-opaque-keys
 edx-rbac
 edx-rest-api-client
-jsonfield==1.0.3
+jsonfield2
 libsass==0.9.2
 markdown==2.6.9
 mysqlclient<1.5
-newrelic<5                          # Not a direct dependency (e.g. via edx-django-utils), but v5 requires python>3.4
+newrelic
 ndg-httpsclient
 path.py==7.2
 paypalrestsdk
@@ -42,14 +43,15 @@ premailer==2.9.2
 pycountry==17.1.8
 pygments
 python-dateutil
-python-openid ; python_version == "2.7"
-python3-openid ; python_version >= "3"
+python3-openid>=3
 pytz
 requests
 rules
 sailthru-client==2.2.3
-six
+sorl-thumbnail
 stripe==1.70.0
 unicodecsv
-xss-utils==0.1.1
+xss-utils
 zeep
+
+git+https://github.com/python-social-auth/social-app-django.git@c00d23c2b45c3317bd35b15ad1b959338689cef8#egg=social-auth-app-django

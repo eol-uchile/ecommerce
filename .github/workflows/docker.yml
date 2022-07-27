@@ -1,0 +1,30 @@
+name: Docker Image CI
+
+on: [push]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@master
+
+      - name: Pull submodules
+        run: git submodule update --init --recursive
+
+      - name: Build Docker image
+        run: docker build . --file .github/Dockerfile --tag ghcr.io/eol-uchile/ecommerce-koa:${GITHUB_SHA}
+
+      - name: Run tests
+        run: docker run ghcr.io/eol-uchile/ecommerce-koa:${GITHUB_SHA} /openedx/ecommerce/tests.sh
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v1
+        with:
+          registry: ghcr.io
+          username: eolito
+          password: ${{ secrets.CR_PAT }}
+
+      - name: Push
+        run: |
+          docker push ghcr.io/eol-uchile/ecommerce-koa:${GITHUB_SHA}

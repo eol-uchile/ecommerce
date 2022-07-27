@@ -1,21 +1,29 @@
 # -*- coding: utf-8 -*-
 # TODO: Refactor this to consolidate it with `ecommerce.programs.forms`.
-from __future__ import absolute_import
+
+
+import decimal
 
 from django import forms
+from django.core.exceptions import ValidationError
+from django.core.validators import validate_email
+from django.db.models import Count, Max, Sum
 from django.forms.utils import ErrorList
 from django.utils.translation import ugettext_lazy as _
 from oscar.core.loading import get_model
 
 from ecommerce.enterprise.benefits import BENEFIT_MAP, BENEFIT_TYPE_CHOICES
 from ecommerce.enterprise.conditions import EnterpriseCustomerCondition
-from ecommerce.enterprise.utils import get_enterprise_customer
+from ecommerce.enterprise.utils import convert_comma_separated_string_to_list, get_enterprise_customer
+from ecommerce.extensions.fulfillment.status import ORDER
 from ecommerce.extensions.offer.models import OFFER_PRIORITY_ENTERPRISE
 from ecommerce.extensions.payment.models import EnterpriseContractMetadata
 from ecommerce.programs.custom import class_path, create_condition
 
 Benefit = get_model('offer', 'Benefit')
 ConditionalOffer = get_model('offer', 'ConditionalOffer')
+Order = get_model('order', 'Order')
+OrderDiscount = get_model('order', 'OrderDiscount')
 Range = get_model('offer', 'Range')
 
 
@@ -27,28 +35,49 @@ class EnterpriseOfferForm(forms.ModelForm):
         required=True, decimal_places=2, max_digits=12, min_value=0, label=_('Discount Value')
     )
     contract_discount_type = forms.ChoiceField(
-        required=False, choices=EnterpriseContractMetadata.DISCOUNT_TYPE_CHOICES, label=_('Contract Discount Type')
+        required=True, choices=EnterpriseContractMetadata.DISCOUNT_TYPE_CHOICES, label=_('Contract Discount Type')
     )
     contract_discount_value = forms.DecimalField(
-        required=False, decimal_places=5, max_digits=15, min_value=0, label=_('Contract Discount')
+        required=True, decimal_places=5, max_digits=15, min_value=0, label=_('Contract Discount')
     )
     prepaid_invoice_amount = forms.DecimalField(
         required=False, decimal_places=5, max_digits=15, min_value=0, label=_('Prepaid Invoice Amount')
     )
+    sales_force_id = forms.CharField(max_length=30, required=False, label=_('Salesforce Opportunity ID'))
+    emails_for_usage_alert = forms.CharField(
+        required=False,
+        label=_("Emails Addresses"),
+        help_text=_("Comma separated emails which will receive the offer usage alerts")
+    )
+    usage_email_frequency = forms.ChoiceField(
+        required=True,
+        choices=ConditionalOffer.USAGE_EMAIL_FREQUENCY_CHOICES,
+        label=_("Frequency for offer usage emails")
+    )
 
-    class Meta(object):
+    class Meta:
         model = ConditionalOffer
         fields = [
             'enterprise_customer_uuid', 'enterprise_customer_catalog_uuid', 'start_datetime',
             'end_datetime', 'benefit_type', 'benefit_value', 'contract_discount_type',
-            'contract_discount_value', 'prepaid_invoice_amount',
+            'contract_discount_value', 'prepaid_invoice_amount', 'sales_force_id',
+            'max_global_applications', 'max_discount', 'max_user_applications', 'max_user_discount',
+            'emails_for_usage_alert', 'usage_email_frequency'
         ]
         help_texts = {
             'end_datetime': '',
+            'max_global_applications': _('The maximum number of enrollments that can redeem this offer.'),
+            'max_discount': _('The maximum USD dollar amount that can be redeemed by this offer.'),
+            'max_user_applications': _('The maximum number of enrollments, by a user, that can redeem this offer.'),
+            'max_user_discount': _('The maximum USD dollar amount that can be redeemed using this offer by a user.'),
         }
         labels = {
             'start_datetime': _('Start Date'),
             'end_datetime': _('End Date'),
+            'max_global_applications': _('Enrollment Limit'),
+            'max_discount': _('Bookings Limit'),
+            'max_user_applications': _('Per User Enrollment Limit'),
+            'max_user_discount': _('Per User Bookings Limit'),
         }
 
     def _prep_contract_metadata(self, enterprise_contract_metadata):
@@ -76,7 +105,7 @@ class EnterpriseOfferForm(forms.ModelForm):
         return (contract_discount_type, contract_discount_value, prepaid_invoice_amount)
 
     def __init__(self, data=None, files=None, auto_id='id_%s', prefix=None, initial=None, error_class=ErrorList,
-                 label_suffix=None, empty_permitted=False, instance=None, request=None, is_editing=None):
+                 label_suffix=None, empty_permitted=False, instance=None, request=None):
         initial = initial or {}
         self.request = request
         if instance:
@@ -98,10 +127,102 @@ class EnterpriseOfferForm(forms.ModelForm):
         date_ui_class = {'class': 'add-pikaday'}
         self.fields['start_datetime'].widget.attrs.update(date_ui_class)
         self.fields['end_datetime'].widget.attrs.update(date_ui_class)
+        # set the min attribute on input widget to enforce minimum value validation at frontend
+        self.fields['max_discount'].widget.attrs.update({'min': 0})
+        self.fields['max_user_discount'].widget.attrs.update({'min': 0})
 
-        if not is_editing:
-            self.fields['contract_discount_type'].required = True
-            self.fields['contract_discount_value'].required = True
+    def clean_max_global_applications(self):
+        # validate against when decreasing the existing value
+        if self.instance.pk and self.instance.max_global_applications:
+            new_max_global_applications = self.cleaned_data.get('max_global_applications') or 0
+            if new_max_global_applications < self.instance.num_applications:
+                self.add_error(
+                    'max_global_applications',
+                    _(
+                        'Ensure new value must be greater than or equal to consumed({offer_enrollments}) value.'
+                    ).format(
+                        offer_enrollments=self.instance.num_applications
+                    )
+                )
+
+        return self.cleaned_data.get('max_global_applications')
+
+    def clean_max_discount(self):
+        max_discount = self.cleaned_data.get('max_discount')
+        # validate against non-decimal and negative values
+        if max_discount is not None and (isinstance(max_discount, decimal.Decimal) and max_discount < 0):
+            self.add_error('max_discount', _('Ensure this value is greater than or equal to 0.'))
+        elif self.instance.pk and self.instance.max_discount:  # validate against when decrease the existing value
+            new_max_discount = max_discount or 0
+            if new_max_discount < self.instance.total_discount:
+                self.add_error(
+                    'max_discount',
+                    _(
+                        'Ensure new value must be greater than or equal to consumed({consumed_discount:.2f}) value.'
+                    ).format(
+                        consumed_discount=self.instance.total_discount
+                    )
+                )
+
+        return max_discount
+
+    def clean_max_user_applications(self):
+        # validate against when decreasing the existing value
+        if self.instance.pk and self.instance.max_user_applications:
+            new_max_user_applications = self.cleaned_data.get('max_user_applications') or 0
+            max_order_count_any_user = OrderDiscount.objects.filter(
+                offer_id=self.instance.id).select_related('order').filter(
+                    order__status=ORDER.COMPLETE).values('order__user_id').order_by(
+                        'order__user_id').annotate(count=Count('order__id')).aggregate(Max('count'))['count__max'] or 0
+            if new_max_user_applications < max_order_count_any_user:
+                self.add_error(
+                    'max_user_applications',
+                    _(
+                        'Ensure new value must be greater than or equal to consumed({offer_enrollments}) value.'
+                    ).format(
+                        offer_enrollments=max_order_count_any_user
+                    )
+                )
+
+        return self.cleaned_data.get('max_user_applications')
+
+    def clean_max_user_discount(self):
+        max_user_discount = self.cleaned_data.get('max_user_discount')
+        # validate against non-decimal and negative values
+        if max_user_discount is not None and (isinstance(max_user_discount, decimal.Decimal) and max_user_discount < 0):
+            self.add_error('max_user_discount', _('Ensure this value is greater than or equal to 0.'))
+        elif self.instance.pk and self.instance.max_user_discount:  # validate against when decrease the existing value
+            new_max_user_discount = max_user_discount or 0
+            max_discount_used_any_user = OrderDiscount.objects.filter(
+                offer_id=self.instance.id).select_related('order').filter(
+                    order__status=ORDER.COMPLETE).values('order__user_id').order_by(
+                        'order__user_id').annotate(user_discount_sum=Sum('amount')).aggregate(
+                            Max('user_discount_sum'))['user_discount_sum__max'] or 0
+            if new_max_user_discount < max_discount_used_any_user:
+                self.add_error(
+                    'max_user_discount',
+                    _(
+                        'Ensure new value must be greater than or equal to consumed({consumed_discount:.2f}) value.'
+                    ).format(
+                        consumed_discount=max_discount_used_any_user
+                    )
+                )
+
+        return max_user_discount
+
+    def clean_emails_for_usage_alert(self):
+        emails_for_usage_alert = self.cleaned_data.get('emails_for_usage_alert')
+        emails = convert_comma_separated_string_to_list(emails_for_usage_alert)
+        for email in emails:
+            try:
+                validate_email(email)
+            except ValidationError:
+                self.add_error(
+                    'emails_for_usage_alert',
+                    _('Given email address {email} is not a valid email.'.format(email=email))
+                )
+                break
+        return emails_for_usage_alert
 
     def clean(self):
         cleaned_data = super(EnterpriseOfferForm, self).clean()
@@ -134,27 +255,27 @@ class EnterpriseOfferForm(forms.ModelForm):
         if start_datetime and end_datetime and start_datetime > end_datetime:
             self.add_error('start_datetime', _('The start date must occur before the end date.'))
 
-        if contract_discount_value is not None:
-            if contract_discount_type == EnterpriseContractMetadata.PERCENTAGE and contract_discount_value > 100:
-                self.add_error('contract_discount_value', _('Percentage discounts cannot be greater than 100%.'))
-            elif contract_discount_type == EnterpriseContractMetadata.FIXED:
-                __, __, after_decimal = str(contract_discount_value).partition('.')
-                if len(after_decimal) > 2:
-                    self.add_error('contract_discount_value', _(
-                        'More than 2 digits after the decimal '
-                        'not allowed for absolute value.'
-                    ))
-                if prepaid_invoice_amount is None:
-                    self.add_error('prepaid_invoice_amount', _(
-                        'This field is required when contract '
-                        'discount type is absolute.'
-                    ))
+        if contract_discount_type == EnterpriseContractMetadata.PERCENTAGE and contract_discount_value > 100:
+            self.add_error('contract_discount_value', _('Percentage discounts cannot be greater than 100%.'))
+        elif contract_discount_type == EnterpriseContractMetadata.FIXED:
+            __, ___, after_decimal = str(contract_discount_value).partition('.')
+            if len(after_decimal) > 2:
+                self.add_error('contract_discount_value', _(
+                    'More than 2 digits after the decimal '
+                    'not allowed for absolute value.'
+                ))
+            if prepaid_invoice_amount is None:
+                self.add_error('prepaid_invoice_amount', _(
+                    'This field is required when contract '
+                    'discount type is absolute.'
+                ))
 
         return cleaned_data
 
     def save(self, commit=True):
         enterprise_customer_uuid = self.cleaned_data['enterprise_customer_uuid']
         enterprise_customer_catalog_uuid = self.cleaned_data['enterprise_customer_catalog_uuid']
+        sales_force_id = self.cleaned_data['sales_force_id']
         site = self.request.site
 
         contract_discount_value = self.cleaned_data['contract_discount_value']
@@ -181,6 +302,13 @@ class EnterpriseOfferForm(forms.ModelForm):
         self.instance.max_basket_applications = 1
         self.instance.partner = site.siteconfiguration.partner
         self.instance.priority = OFFER_PRIORITY_ENTERPRISE
+        self.instance.sales_force_id = sales_force_id
+
+        self.instance.max_global_applications = self.cleaned_data.get('max_global_applications')
+        self.instance.max_discount = self.cleaned_data.get('max_discount')
+        self.instance.max_user_applications = self.cleaned_data.get('max_user_applications')
+        self.instance.max_user_discount = self.cleaned_data.get('max_user_discount')
+        self.instance.emails_for_usage_alert = self.cleaned_data.get('emails_for_usage_alert')
 
         if commit:
             ecm = self.instance.enterprise_contract_metadata

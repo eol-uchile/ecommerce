@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Unit tests of Invoice payment processor implementation."""
-from __future__ import absolute_import, unicode_literals
+
 
 import datetime
 
@@ -46,6 +46,7 @@ class InvoiceTests(PaymentProcessorTestCaseMixin, TestCase):
         """
         Tests that transaction parameters are always None
         """
+        # pylint: disable=assignment-from-none
         params = self.processor_class(self.site).get_transaction_parameters(self.basket)
         self.assertIsNone(None, params)
 

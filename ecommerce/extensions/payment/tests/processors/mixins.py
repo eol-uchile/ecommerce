@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Base class for payment processor implementation test classes."""
-from __future__ import absolute_import, unicode_literals
+
 
 import ddt
 from django.conf import settings
@@ -67,9 +67,9 @@ class PaymentProcessorTestCaseMixin(RefundTestMixin, DiscoveryTestMixin, Payment
         raise NotImplementedError
 
     def test_issue_credit(self):
-        """ Verify the payment processor responds appropriately to requests to issue credit. """
+        """ Verify the payment processor responds appropriately to requests to issue credit/refund. """
         raise NotImplementedError
 
     def test_issue_credit_error(self):
-        """ Verify the payment processor responds appropriately if the payment gateway cannot issue a credit. """
+        """ Verify the payment processor responds appropriately if the payment gateway cannot issue a credit/refund. """
         raise NotImplementedError

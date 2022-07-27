@@ -1,4 +1,4 @@
-from __future__ import absolute_import
+
 
 import logging
 
@@ -35,7 +35,7 @@ class IsOffersOrIsAuthenticatedAndStaff(permissions.BasePermission):
     def has_permission(self, request, view):
         user = request.user
         # pylint: disable=consider-using-ternary
-        return (user.is_authenticated() and user.is_staff) or view.action == 'offers'
+        return (user.is_authenticated and user.is_staff) or view.action == 'offers'
 
 
 class IsStaffOrOwner(permissions.BasePermission):

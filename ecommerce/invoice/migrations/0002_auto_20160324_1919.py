@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-from __future__ import absolute_import, unicode_literals
+
 
 import django.db.models.deletion
 from django.db import migrations, models
@@ -27,16 +27,16 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name='invoice',
             name='business_client',
-            field=models.ForeignKey(to='core.BusinessClient', null=True),
+            field=models.ForeignKey(to='core.BusinessClient', null=True, on_delete=models.CASCADE),
         ),
         migrations.AddField(
             model_name='invoice',
             name='order',
-            field=models.ForeignKey(to='order.Order', null=True),
+            field=models.ForeignKey(to='order.Order', null=True, on_delete=models.CASCADE),
         ),
         migrations.AlterField(
             model_name='invoice',
             name='basket',
-            field=models.ForeignKey(blank=True, to='basket.Basket', null=True),
+            field=models.ForeignKey(blank=True, to='basket.Basket', null=True, on_delete=models.CASCADE),
         ),
     ]

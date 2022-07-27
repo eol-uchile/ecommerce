@@ -1,11 +1,10 @@
-from __future__ import absolute_import, unicode_literals
+
 
 from decimal import Decimal
 
 import ddt
 import httpretty
 import mock
-import six
 from django.conf import settings
 from oscar.apps.payment.exceptions import PaymentError
 from oscar.core.loading import get_class, get_model
@@ -35,7 +34,7 @@ LOGGER_NAME = 'ecommerce.extensions.analytics.utils'
 REFUND_MODEL_LOGGER_NAME = 'ecommerce.extensions.refund.models'
 
 
-class StatusTestsMixin(object):
+class StatusTestsMixin:
     pipeline = None
 
     def _get_instance(self, **kwargs):
@@ -45,14 +44,14 @@ class StatusTestsMixin(object):
     def test_available_statuses(self):
         """ Verify available_statuses() returns a list of statuses corresponding to the pipeline. """
 
-        for status, allowed_transitions in six.iteritems(self.pipeline):
+        for status, allowed_transitions in self.pipeline.items():
             instance = self._get_instance(status=status)
             self.assertEqual(instance.available_statuses(), allowed_transitions)
 
     def test_set_status_invalid_status(self):
         """ Verify attempts to set the status to an invalid value raise an exception. """
 
-        for status, valid_statuses in six.iteritems(self.pipeline):
+        for status, valid_statuses in self.pipeline.items():
             instance = self._get_instance(status=status)
 
             all_statuses = list(self.pipeline.keys())
@@ -66,7 +65,7 @@ class StatusTestsMixin(object):
     def test_set_status_valid_status(self):
         """ Verify status is updated when attempting to transition to a valid status. """
 
-        for status, valid_statuses in six.iteritems(self.pipeline):
+        for status, valid_statuses in self.pipeline.items():
             for new_status in valid_statuses:
                 instance = self._get_instance(status=status)
                 instance.set_status(new_status)
@@ -178,7 +177,7 @@ class RefundTests(RefundTestMixin, StatusTestsMixin, TestCase):
 
         # Verify that the refund has been successfully approved.
         self.assertEqual(refund.status, REFUND.COMPLETE)
-        self.assertEqual(set([line.status for line in refund.lines.all()]), {REFUND_LINE.COMPLETE})
+        self.assertEqual({line.status for line in refund.lines.all()}, {REFUND_LINE.COMPLETE})
 
         # Verify no notification is sent to the purchaser
         self.assertFalse(mock_notify.called)

@@ -1,5 +1,5 @@
 """HTTP endpoint for verifying the health of the ecommerce front-end."""
-from __future__ import absolute_import
+
 
 import logging
 import uuid
@@ -97,7 +97,7 @@ class AutoAuth(View):
         return redirect('/')
 
 
-class StaffOnlyMixin(object):
+class StaffOnlyMixin:
     """ Makes sure only staff users can access the view. """
 
     @method_decorator(login_required)

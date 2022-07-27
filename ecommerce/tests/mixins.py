@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Broadly-useful mixins for use in automated tests."""
-from __future__ import absolute_import
+
 
 import datetime
 import json
@@ -9,6 +9,7 @@ from decimal import Decimal
 
 import httpretty
 import jwt
+from crum import set_current_request
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.sites.models import Site
@@ -48,7 +49,7 @@ Voucher = get_model('voucher', 'Voucher')
 CONTENT_TYPE = 'application/json'
 
 
-class UserMixin(object):
+class UserMixin:
     """Provides utility methods for creating and authenticating users in test cases."""
     access_token = 'test-access-token'
     user_id = 'test-user-id'
@@ -83,6 +84,17 @@ class UserMixin(object):
     def generate_jwt_token_header(self, user, secret=None):
         """Generate a valid JWT token header for authenticated requests."""
         secret = secret or settings.JWT_AUTH['JWT_SECRET_KEY']
+
+        # WARNING:
+        #   If any test that uses this function fails with an error about a missing 'exp' or 'iat' or
+        #     'is_restricted' claim in the payload, then do one of the following:
+        #
+        #   1. If Ecommerce's JWT_DECODE_HANDLER setting still points to a custom decoder inside Ecommerce,
+        #      then a bug was introduced and the setting is no longer respected. If this is the case, do not
+        #      add the claims to this test, and instead fix the bug. Or,
+        #   2. If Ecommerce is being updated to no longer use a custom JWT_DECODE_HANDLER from Ecommerce, but is
+        #      instead using the decode handler directly from edx-drf-extensions, any required claims can be
+        #      added to this test and this warning can be removed.
         payload = {
             'username': user.username,
             'email': user.email,
@@ -91,7 +103,7 @@ class UserMixin(object):
         return "JWT {token}".format(token=jwt.encode(payload, secret).decode('utf-8'))
 
 
-class ThrottlingMixin(object):
+class ThrottlingMixin:
     """Provides utility methods for test cases validating the behavior of rate-limited endpoints."""
 
     def setUp(self):
@@ -101,7 +113,7 @@ class ThrottlingMixin(object):
         self.addCleanup(TieredCache.dangerous_clear_all_tiers)
 
 
-class JwtMixin(object):
+class JwtMixin:
     """ Mixin with JWT-related helper functions. """
     JWT_SECRET_KEY = settings.JWT_AUTH['JWT_SECRET_KEY']
     issuer = settings.JWT_AUTH['JWT_ISSUERS'][0]['ISSUER']
@@ -227,7 +239,7 @@ class BasketCreationMixin(UserMixin, JwtMixin):
                 self.assertIsNone(response.data['payment_data'])
 
 
-class BusinessIntelligenceMixin(object):
+class BusinessIntelligenceMixin:
     """Provides assertions for test cases validating the emission of business intelligence events."""
 
     def assert_correct_event(
@@ -291,7 +303,7 @@ class BusinessIntelligenceMixin(object):
             self.fail()
 
 
-class SiteMixin(object):
+class SiteMixin:
     def setUp(self):
         super(SiteMixin, self).setUp()
 
@@ -328,6 +340,8 @@ class SiteMixin(object):
         self.request.session = None
         self.request.site = self.site
         set_thread_variable('request', self.request)
+        set_current_request(self.request)
+        self.addCleanup(set_current_request)
 
     def mock_access_token_response(self, status=200, **token_data):
         """ Mock the response from the OAuth provider's access token endpoint. """
@@ -349,14 +363,14 @@ class SiteMixin(object):
         return token
 
 
-class TestServerUrlMixin(object):
+class TestServerUrlMixin:
     def get_full_url(self, path, site=None):
         """ Returns a complete URL with the given path. """
         site = site or self.site
         return 'http://{domain}{path}'.format(domain=site.domain, path=path)
 
 
-class ApiMockMixin(object):
+class ApiMockMixin:
     """ Common Mocks for the API responses. """
 
     def mock_api_error(self, error, url):
@@ -366,7 +380,7 @@ class ApiMockMixin(object):
         httpretty.register_uri(httpretty.GET, url, body=callback, content_type=CONTENT_TYPE)
 
 
-class LmsApiMockMixin(object):
+class LmsApiMockMixin:
     """ Mocks for the LMS API responses. """
 
     def mock_course_api_response(self, course=None):
@@ -446,7 +460,7 @@ class LmsApiMockMixin(object):
         httpretty.register_uri(httpretty.POST, url, body=response, content_type=CONTENT_TYPE)
 
 
-class TestWaffleFlagMixin(object):
+class TestWaffleFlagMixin:
     """ Updates or creates a waffle flag and activates to True. Turns on any waffle flag to all tests
     without requiring the addition of the flag in individual methods/classes """
     def setUp(self):

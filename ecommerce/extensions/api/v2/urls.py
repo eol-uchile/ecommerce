@@ -1,10 +1,10 @@
-from __future__ import absolute_import
+
 
 from django.conf.urls import include, url
 from rest_framework.urlpatterns import format_suffix_patterns
-from rest_framework_extensions.routers import ExtendedSimpleRouter
+from rest_framework_extensions.routers import ExtendedSimpleRouter as SimpleRouter
 
-from ecommerce.core.constants import COURSE_ID_PATTERN
+from ecommerce.core.constants import COURSE_ID_PATTERN, UUID_REGEX_PATTERN
 from ecommerce.extensions.api.v2.views import assignmentemail as assignment_email
 from ecommerce.extensions.api.v2.views import baskets as basket_views
 from ecommerce.extensions.api.v2.views import catalog as catalog_views
@@ -20,7 +20,6 @@ from ecommerce.extensions.api.v2.views import providers as provider_views
 from ecommerce.extensions.api.v2.views import publication as publication_views
 from ecommerce.extensions.api.v2.views import refunds as refund_views
 from ecommerce.extensions.api.v2.views import retirement as retirement_views
-from ecommerce.extensions.api.v2.views import sdn as sdn_views
 from ecommerce.extensions.api.v2.views import stockrecords as stockrecords_views
 from ecommerce.extensions.api.v2.views import user_management as user_management_views
 from ecommerce.extensions.api.v2.views import vouchers as voucher_views
@@ -83,10 +82,6 @@ PROVIDER_URLS = [
     url(r'^$', provider_views.ProviderViewSet.as_view(), name='list_providers')
 ]
 
-SDN_URLS = [
-    url(r'^search/$', sdn_views.SDNCheckViewSet.as_view(), name='search')
-]
-
 ENTERPRISE_URLS = [
     url(r'^customers$', enterprise_views.EnterpriseCustomerViewSet.as_view(), name='enterprise_customers'),
     url(
@@ -111,51 +106,55 @@ USER_MANAGEMENT_URLS = [
 ]
 
 urlpatterns = [
-    url(r'^baskets/', include(BASKET_URLS, namespace='baskets')),
-    url(r'^checkout/', include(CHECKOUT_URLS, namespace='checkout')),
-    url(r'^coupons/', include(COUPON_URLS, namespace='coupons')),
-    url(r'^enterprise/', include(ENTERPRISE_URLS, namespace='enterprise')),
-    url(r'^payment/', include(PAYMENT_URLS, namespace='payment')),
-    url(r'^providers/', include(PROVIDER_URLS, namespace='providers')),
-    url(r'^publication/', include(ATOMIC_PUBLICATION_URLS, namespace='publication')),
-    url(r'^refunds/', include(REFUND_URLS, namespace='refunds')),
-    url(r'^retirement/', include(RETIREMENT_URLS, namespace='retirement')),
-    url(r'^user_management/', include(USER_MANAGEMENT_URLS, namespace='user_management')),
-    url(r'^sdn/', include(SDN_URLS, namespace='sdn')),
-    url(r'^assignment-email/', include(ASSIGNMENT_EMAIL_URLS, namespace='assignment-email')),
+    url(r'^baskets/', include((BASKET_URLS, 'baskets'))),
+    url(r'^checkout/', include((CHECKOUT_URLS, 'checkout'))),
+    url(r'^coupons/', include((COUPON_URLS, 'coupons'))),
+    url(r'^enterprise/', include((ENTERPRISE_URLS, 'enterprise'))),
+    url(r'^payment/', include((PAYMENT_URLS, 'payment'))),
+    url(r'^providers/', include((PROVIDER_URLS, 'providers'))),
+    url(r'^publication/', include((ATOMIC_PUBLICATION_URLS, 'publication'))),
+    url(r'^refunds/', include((REFUND_URLS, 'refunds'))),
+    url(r'^retirement/', include((RETIREMENT_URLS, 'retirement'))),
+    url(r'^user_management/', include((USER_MANAGEMENT_URLS, 'user_management'))),
+    url(r'^assignment-email/', include((ASSIGNMENT_EMAIL_URLS, 'assignment-email'))),
 ]
 
-router = ExtendedSimpleRouter()
-router.register(r'basket-details', basket_views.BasketViewSet, base_name='basket')
-router.register(r'catalogs', catalog_views.CatalogViewSet, base_name='catalog') \
-    .register(r'products', product_views.ProductViewSet, base_name='catalog-product',
+router = SimpleRouter()
+router.register(r'basket-details', basket_views.BasketViewSet, basename='basket')
+router.register(r'catalogs', catalog_views.CatalogViewSet, basename='catalog') \
+    .register(r'products', product_views.ProductViewSet, basename='catalog-product',
               parents_query_lookups=['stockrecords__catalogs'])
-router.register(r'coupons', coupon_views.CouponViewSet, base_name='coupons')
-router.register(r'enterprise/coupons', enterprise_views.EnterpriseCouponViewSet, base_name='enterprise-coupons')
+router.register(r'coupons', coupon_views.CouponViewSet, basename='coupons')
+router.register(r'enterprise/coupons', enterprise_views.EnterpriseCouponViewSet, basename='enterprise-coupons')
 router.register(
     r'enterprise/offer_assignment_summary',
     enterprise_views.OfferAssignmentSummaryViewSet,
-    base_name='enterprise-offer-assignment-summary',
+    basename='enterprise-offer-assignment-summary',
+)
+router.register(
+    r'enterprise/offer-assignment-email-template/(?P<enterprise_customer>{})'.format(UUID_REGEX_PATTERN),
+    enterprise_views.OfferAssignmentEmailTemplatesViewSet,
+    basename='enterprise-offer-assignment-email-template',
 )
 
-router.register(r'courses', course_views.CourseViewSet, base_name='course') \
+router.register(r'courses', course_views.CourseViewSet, basename='course') \
     .register(r'products', product_views.ProductViewSet,
-              base_name='course-product', parents_query_lookups=['course_id'])
-router.register(r'orders', order_views.OrderViewSet, base_name='order')
+              basename='course-product', parents_query_lookups=['course_id'])
+router.register(r'orders', order_views.OrderViewSet, basename='order')
 router.register(
     r'manual_course_enrollment_order',
     order_views.ManualCourseEnrollmentOrderViewSet,
-    base_name='manual-course-enrollment-order'
+    basename='manual-course-enrollment-order'
 )
 router.register(r'partners', partner_views.PartnerViewSet) \
     .register(r'catalogs', catalog_views.CatalogViewSet,
-              base_name='partner-catalogs', parents_query_lookups=['partner_id'])
+              basename='partner-catalogs', parents_query_lookups=['partner_id'])
 router.register(r'partners', partner_views.PartnerViewSet) \
     .register(r'products', product_views.ProductViewSet,
-              base_name='partner-product', parents_query_lookups=['stockrecords__partner_id'])
-router.register(r'products', product_views.ProductViewSet, base_name='product')
-router.register(r'vouchers', voucher_views.VoucherViewSet, base_name='vouchers')
-router.register(r'stockrecords', stockrecords_views.StockRecordViewSet, base_name='stockrecords')
+              basename='partner-product', parents_query_lookups=['stockrecords__partner_id'])
+router.register(r'products', product_views.ProductViewSet, basename='product')
+router.register(r'vouchers', voucher_views.VoucherViewSet, basename='vouchers')
+router.register(r'stockrecords', stockrecords_views.StockRecordViewSet, basename='stockrecords')
 
 urlpatterns += router.urls
 urlpatterns = format_suffix_patterns(urlpatterns)

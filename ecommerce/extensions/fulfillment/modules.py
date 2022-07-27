@@ -3,16 +3,15 @@
 Fulfillment Modules are designed to allow specific fulfillment logic based on the type (or types) of products
 in an Order.
 """
-from __future__ import absolute_import
+
 
 import abc
 import datetime
 import json
 import logging
-from decimal import Decimal
+from urllib.parse import urlencode
 
 import requests
-import six
 import waffle
 from django.conf import settings
 from django.urls import reverse
@@ -21,7 +20,6 @@ from oscar.core.loading import get_model
 from requests.exceptions import ConnectionError as ReqConnectionError  # pylint: disable=ungrouped-imports
 from requests.exceptions import Timeout
 from rest_framework import status
-from six.moves.urllib.parse import urlencode
 
 from ecommerce.core.constants import (
     DONATIONS_FROM_CHECKOUT_TESTS_PRODUCT_TYPE_NAME,
@@ -33,6 +31,7 @@ from ecommerce.core.url_utils import get_lms_enrollment_api_url, get_lms_entitle
 from ecommerce.courses.models import Course
 from ecommerce.courses.utils import mode_for_product
 from ecommerce.enterprise.conditions import BasketAttributeType
+from ecommerce.enterprise.mixins import EnterpriseDiscountMixin
 from ecommerce.enterprise.utils import (
     get_enterprise_customer_uuid_from_voucher,
     get_or_create_enterprise_customer_user
@@ -43,8 +42,6 @@ from ecommerce.extensions.basket.constants import PURCHASER_BEHALF_ATTRIBUTE
 from ecommerce.extensions.basket.models import BasketAttribute
 from ecommerce.extensions.checkout.utils import get_receipt_page_url
 from ecommerce.extensions.fulfillment.status import LINE
-from ecommerce.extensions.fulfillment.utils import get_enterprise_customer_cost_for_line
-from ecommerce.extensions.payment.models import EnterpriseContractMetadata
 from ecommerce.extensions.voucher.models import OrderLineVouchers
 from ecommerce.extensions.voucher.utils import create_vouchers
 from ecommerce.notifications.notifications import send_notification
@@ -59,7 +56,7 @@ StockRecord = get_model('partner', 'StockRecord')
 logger = logging.getLogger(__name__)
 
 
-class BaseFulfillmentModule(six.with_metaclass(abc.ABCMeta, object)):  # pragma: no cover
+class BaseFulfillmentModule(metaclass=abc.ABCMeta):  # pragma: no cover
     """
     Base FulfillmentModule class for containing Product specific fulfillment logic.
 
@@ -182,7 +179,7 @@ class DonationsFromCheckoutTestFulfillmentModule(BaseFulfillmentModule):
         return True
 
 
-class EnrollmentFulfillmentModule(BaseFulfillmentModule):
+class EnrollmentFulfillmentModule(EnterpriseDiscountMixin, BaseFulfillmentModule):
     """ Fulfillment Module for enrolling students after a product purchase.
 
     Allows the enrollment of a student via purchase of a 'seat'.
@@ -257,89 +254,6 @@ class EnrollmentFulfillmentModule(BaseFulfillmentModule):
             A supported list of unmodified lines associated with "Seat" products.
         """
         return [line for line in lines if self.supports_line(line)]
-
-    def _calculate_effective_discount_percentage(self, contract_metadata):
-        """
-        Returns the effective discount percentage on a contract.
-        EnterpriseContractMetadata holds the value as a whole number,
-        but on the orderline, we need to represent it as a decimaled
-        percent (.23 instead of 23)
-
-        Args:
-            contract_metadata:  EnterpriseContractMetadata object
-
-        Returns:
-            A Decimal() object.
-        """
-        if contract_metadata.discount_type == EnterpriseContractMetadata.PERCENTAGE:
-            return contract_metadata.discount_value * Decimal('.01')
-        return contract_metadata.discount_value / (contract_metadata.discount_value + contract_metadata.amount_paid)
-
-    def _locate_contract_metadata(self, order):
-        """
-        Locates an EnterpriseContractMetadata object associated with an order.
-
-        The contract metadata can live on the `attr` of a coupon product in the
-        case of a coupon being redeemed (`mycoupon.attr.enterprise_contract_metadata`)
-
-        -OR-
-
-        The contract metadata can live on the conditional offer associated with
-        the discount (that is associated with the order) in the case of an
-        enterprise offer
-
-        Args:
-            order: An Order object
-
-        Returns:
-            A EnterpriseContractMetadata object if one is found, else None.
-        """
-        for discount in order.discounts.all():
-            # If a coupon is being redeemed
-            if discount.voucher and get_enterprise_customer_uuid_from_voucher(discount.voucher):
-                coupon = discount.voucher.coupon_vouchers.first().coupon
-                contract_metadata = getattr(coupon.attr, 'enterprise_contract_metadata', None)
-                if contract_metadata is not None:
-                    logger.info("Using contract_metadata on coupon product for order [%s]", order.number)
-                    return contract_metadata
-            # If there is an enterprise offer
-            if discount.offer and discount.offer.enterprise_contract_metadata:
-                logger.info("Using contract_metadata on conditional offer for order [%s]", order.number)
-                return discount.offer.enterprise_contract_metadata
-
-        return None
-
-    def _update_orderline_with_enterprise_discount_metadata(self, order, line):
-        """
-        Updates an orderline with calculated discount metrics if applicable
-
-        Args:
-            order: An Order object
-            line: A Line object
-
-        Returns:
-            Nothing
-
-        Side effect:
-            Saves a line object if effective_discount_percentage and
-            enterprise_customer_cost can be calculated.
-
-        """
-        contract_metadata = self._locate_contract_metadata(order)
-        if contract_metadata is None:
-            return
-        logger.info("Enterprise contract metadata found for order [%s]", order.number)
-
-        effective_discount_percentage = self._calculate_effective_discount_percentage(
-            contract_metadata
-        )
-        enterprise_customer_cost = get_enterprise_customer_cost_for_line(
-            line.unit_price_excl_tax,
-            effective_discount_percentage
-        )
-        line.effective_contract_discount_percentage = effective_discount_percentage
-        line.effective_contract_discounted_price = enterprise_customer_cost
-        line.save()
 
     def fulfill_product(self, order, lines, email_opt_in=False):
         """ Fulfills the purchase of a 'seat' by enrolling the associated student.
@@ -416,7 +330,7 @@ class EnrollmentFulfillmentModule(BaseFulfillmentModule):
                 )
             try:
                 self._add_enterprise_data_to_enrollment_api_post(data, order)
-                self._update_orderline_with_enterprise_discount_metadata(order, line)
+                self.update_orderline_with_enterprise_discount_metadata(order, line)
 
                 # Post to the Enrollment API. The LMS will take care of posting a new EnterpriseCourseEnrollment to
                 # the Enterprise service if the user+course has a corresponding EnterpriseCustomerUser.
@@ -492,17 +406,15 @@ class EnrollmentFulfillmentModule(BaseFulfillmentModule):
                 )
 
                 return True
-            else:
-                # check if the error / message are something we can recover from.
-                data = response.json()
-                detail = data.get('message', '(No details provided.)')
-                if response.status_code == 400 and "Enrollment mode mismatch" in detail:
-                    # The user is currently enrolled in different mode than the one
-                    # we are refunding an order for.  Don't revoke that enrollment.
-                    logger.info('Skipping revocation for line [%d]: %s', line.id, detail)
-                    return True
-                else:
-                    logger.error('Failed to revoke fulfillment of Line [%d]: %s', line.id, detail)
+            # check if the error / message are something we can recover from.
+            data = response.json()
+            detail = data.get('message', '(No details provided.)')
+            if response.status_code == 400 and "Enrollment mode mismatch" in detail:
+                # The user is currently enrolled in different mode than the one
+                # we are refunding an order for.  Don't revoke that enrollment.
+                logger.info('Skipping revocation for line [%d]: %s', line.id, detail)
+                return True
+            logger.error('Failed to revoke fulfillment of Line [%d]: %s', line.id, detail)
         except Exception:  # pylint: disable=broad-except
             logger.exception('Failed to revoke fulfillment of Line [%d].', line.id)
 
@@ -631,7 +543,7 @@ class EnrollmentCodeFulfillmentModule(BaseFulfillmentModule):
             _range.save()
 
             vouchers = create_vouchers(
-                name=six.text_type('Enrollment code voucher [{}]').format(line.product.title),
+                name=str('Enrollment code voucher [{}]').format(line.product.title),
                 benefit_type=Benefit.PERCENTAGE,
                 benefit_value=100,
                 catalog=coupon_catalog,
@@ -823,7 +735,7 @@ class EnrollmentCodeFulfillmentModule(BaseFulfillmentModule):
         )
 
 
-class CourseEntitlementFulfillmentModule(BaseFulfillmentModule):
+class CourseEntitlementFulfillmentModule(EnterpriseDiscountMixin, BaseFulfillmentModule):
     """ Fulfillment Module for granting students an entitlement.
     Allows the entitlement of a student via purchase of a 'Course Entitlement'.
     """
@@ -841,6 +753,22 @@ class CourseEntitlementFulfillmentModule(BaseFulfillmentModule):
             A supported list of unmodified lines associated with "Course Entitlement" products.
         """
         return [line for line in lines if self.supports_line(line)]
+
+    def _create_enterprise_customer_user(self, order):
+        """
+        Create the enterprise customer user if an EnterpriseCustomer UUID is associated in the order's discount voucher.
+        """
+        enterprise_customer_uuid = None
+        for discount in order.discounts.all():
+            if discount.voucher:
+                enterprise_customer_uuid = get_enterprise_customer_uuid_from_voucher(discount.voucher)
+            if enterprise_customer_uuid is not None:
+                get_or_create_enterprise_customer_user(
+                    order.site,
+                    enterprise_customer_uuid,
+                    order.user.username
+                )
+                break
 
     def fulfill_product(self, order, lines, email_opt_in=False):
         """ Fulfills the purchase of a 'Course Entitlement'.
@@ -881,6 +809,8 @@ class CourseEntitlementFulfillmentModule(BaseFulfillmentModule):
             }
 
             try:
+                self._create_enterprise_customer_user(order)
+                self.update_orderline_with_enterprise_discount_metadata(order, line)
                 entitlement_option = Option.objects.get(code='course_entitlement')
 
                 entitlement_api_client = EdxRestApiClient(

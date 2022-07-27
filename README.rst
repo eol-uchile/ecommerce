@@ -8,6 +8,22 @@ edX E-Commerce Service  |Travis|_ |Codecov|_
 
 This repository contains the edX E-Commerce Service, which relies heavily on `django-oscar <https://django-oscar.readthedocs.org/en/latest/>`_, as well as all frontend and backend code used to manage edX's product catalog and handle orders for those products.
 
+EOL
+-------------
+Changelog
+
+- changed models on courses/models to add spanish default translations via backend, instead of at frontend runtime.
+- added webpay payment processor and views
+- changed default error pages for 404 and 500 errors
+- added models on extensions/payment
+- changed ReceiptResponseView on ecommerce/extensions/checkout/views to add boleta to template context
+- added template, javascript and emails
+- added commands to extensions/payment
+- added mixins to extensions/payment/processors and extensions/payment/views
+- modified paypal on extensions/payment to convert from the defaul currency to USD. Also added logic to connect to boleta.
+
+For more details check the .github folder for Installing and on developper notes.
+
 Documentation
 -------------
 

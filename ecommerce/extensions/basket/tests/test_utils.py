@@ -1,4 +1,4 @@
-from __future__ import absolute_import
+
 
 import datetime
 import json
@@ -27,6 +27,7 @@ from ecommerce.extensions.basket.utils import (
     attribute_cookie_data,
     get_basket_switch_data,
     get_payment_microfrontend_url_if_configured,
+    is_duplicate_seat_attempt,
     prepare_basket
 )
 from ecommerce.extensions.catalogue.tests.mixins import DiscoveryTestMixin
@@ -47,6 +48,7 @@ BUNDLE = 'bundle_identifier'
 Option = get_model('catalogue', 'Option')
 Product = get_model('catalogue', 'Product')
 ProductClass = get_model('catalogue', 'ProductClass')
+TEST_BUNDLE_ID = '12345678-1234-1234-1234-123456789abc'
 
 
 def timeoutException():
@@ -387,10 +389,10 @@ class BasketUtilsTests(DiscoveryTestMixin, BasketMixin, TestCase):
         basket = prepare_basket(request, [product])
         with self.assertRaises(BasketAttribute.DoesNotExist):
             BasketAttribute.objects.get(basket=basket, attribute_type__name=BUNDLE)
-        request.GET = {'bundle': 'test_bundle'}
+        request.GET = {'bundle': TEST_BUNDLE_ID}
         basket = prepare_basket(request, [product])
         bundle_id = BasketAttribute.objects.get(basket=basket, attribute_type__name=BUNDLE).value_text
-        self.assertEqual(bundle_id, 'test_bundle')
+        self.assertEqual(bundle_id, TEST_BUNDLE_ID)
 
     def test_prepare_basket_with_bundle_voucher(self):
         """
@@ -403,7 +405,7 @@ class BasketUtilsTests(DiscoveryTestMixin, BasketMixin, TestCase):
         request = self.request
         basket = prepare_basket(request, [product], voucher)
         self.assertTrue(basket.vouchers.all())
-        request.GET = {'bundle': 'test_bundle'}
+        request.GET = {'bundle': TEST_BUNDLE_ID}
         basket = prepare_basket(request, [product])
         self.assertFalse(basket.vouchers.all())
 
@@ -413,12 +415,12 @@ class BasketUtilsTests(DiscoveryTestMixin, BasketMixin, TestCase):
         """
         product = ProductFactory(categories=[], stockrecords__partner__short_code='second')
         request = self.request
-        request.GET = {'bundle': 'test_bundle'}
+        request.GET = {'bundle': TEST_BUNDLE_ID}
         basket = prepare_basket(request, [product])
 
         # Verify that the bundle attribute exists for the basket when bundle is added to basket
         bundle_id = BasketAttribute.objects.get(basket=basket, attribute_type__name=BUNDLE).value_text
-        self.assertEqual(bundle_id, 'test_bundle')
+        self.assertEqual(bundle_id, TEST_BUNDLE_ID)
 
         # Verify that the attribute is deleted when a non-bundle product is added to the basket
         request.GET = {}
@@ -668,6 +670,36 @@ class BasketUtilsTests(DiscoveryTestMixin, BasketMixin, TestCase):
             self.site_configuration.enable_microfrontend_for_basket_page = microfrontend_enabled
             self.site_configuration.payment_microfrontend_url = payment_microfrontend_url
             self.assertEqual(get_payment_microfrontend_url_if_configured(self.request), expected_result)
+
+    def test_prepare_basket_with_duplicate_seat(self):
+        """ Verify a basket fixes the case where flush doesn't work and we attempt adding duplicate seat. """
+        with mock.patch('ecommerce.extensions.basket.utils.Basket.flush'):
+            product_type_seat, _ = ProductClass.objects.get_or_create(name='Seat')
+            product1 = ProductFactory(stockrecords__partner__short_code='test1', product_class=product_type_seat)
+            prepare_basket(self.request, [product1])
+            basket = prepare_basket(self.request, [product1])  # try to add a duplicate seat
+            self.assertEqual(basket.product_quantity(product1), 1)
+
+    def test_is_duplicate_seat_attempt__seats(self):
+        """ Verify we get a correct response for duplicate seat check (seats) """
+        product_type_seat, _ = ProductClass.objects.get_or_create(name='Seat')
+        product1 = ProductFactory(stockrecords__partner__short_code='test1', product_class=product_type_seat)
+        product2 = ProductFactory(stockrecords__partner__short_code='test2', product_class=product_type_seat)
+        seat_basket = prepare_basket(self.request, [product1])
+        result_product1 = is_duplicate_seat_attempt(seat_basket, product1)
+        result_product2 = is_duplicate_seat_attempt(seat_basket, product2)
+
+        self.assertTrue(result_product1)
+        self.assertFalse(result_product2)
+
+    def test_is_duplicate_seat_attempt__enrollment_code(self):
+        """ Verify we get a correct response for duplicate seat check (false for Enrollment code)"""
+        enrollment_class, _ = ProductClass.objects.get_or_create(name='Enrollment Code')
+        enrollment_product = ProductFactory(stockrecords__partner__short_code='test3', product_class=enrollment_class)
+        basket_with_enrollment_code = prepare_basket(self.request, [enrollment_product])
+        result_product3 = is_duplicate_seat_attempt(basket_with_enrollment_code, enrollment_product)
+
+        self.assertFalse(result_product3)
 
 
 class BasketUtilsTransactionTests(TransactionTestCase):

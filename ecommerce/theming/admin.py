@@ -1,7 +1,7 @@
 """
 Django admin page for theming models
 """
-from __future__ import absolute_import
+
 
 from django.contrib import admin
 
@@ -15,7 +15,7 @@ class SiteThemeAdmin(admin.ModelAdmin):
     list_display = ('site', 'theme_dir_name')
     search_fields = ('site__domain', 'theme_dir_name')
 
-    class Meta(object):
+    class Meta:
         """
         Meta class for SiteTheme admin model
         """

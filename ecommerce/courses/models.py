@@ -1,8 +1,7 @@
-from __future__ import absolute_import, unicode_literals
+
 
 import logging
 
-import six
 from django.conf import settings
 from django.db import models, transaction
 from django.db.models import Count, Q
@@ -44,8 +43,8 @@ class Course(models.Model):
     thumbnail_url = models.URLField(null=True, blank=True)
     history = HistoricalRecords()
 
-    def __unicode__(self):
-        return six.text_type(self.id)
+    def __str__(self):
+        return str(self.id)
 
     def _create_parent_seat(self):
         """ Create the parent seat product if it does not already exist. """
@@ -55,7 +54,8 @@ class Course(models.Model):
             product_class=ProductClass.objects.get(name=SEAT_PRODUCT_CLASS_NAME),
         )
         ProductCategory.objects.get_or_create(category=Category.objects.get(name='Seats'), product=parent)
-        parent.title = 'Seat in {}'.format(self.name)
+        #parent.title = 'Seat in {}'.format(self.name)
+        parent.title = 'Inscripción en {}'.format(self.name)
         parent.is_discountable = True
         parent.attr.course_key = self.id
         parent.save()
@@ -85,7 +85,7 @@ class Course(models.Model):
 
         if mode == 'no-id-professional':
             return 'professional'
-        elif mode == 'audit':
+        if mode == 'audit':
             # Historically, users enrolled in an 'audit' mode have not received a certificate.
             return ''
 
@@ -97,13 +97,13 @@ class Course(models.Model):
         seat_types = [getattr(seat.attr, 'certificate_type', '').lower() for seat in self.seat_products]
         if 'credit' in seat_types:
             return 'credit'
-        elif 'professional' in seat_types or 'no-id-professional' in seat_types:
+        if 'professional' in seat_types or 'no-id-professional' in seat_types:
             return 'professional'
         # This is checking for the Verified and Audit case, but Audit has no certificate type
         # so it is returned as the empty string.
-        elif 'verified' in seat_types and '' in seat_types:
+        if 'verified' in seat_types and ('' in seat_types or 'honor' in seat_types):
             return 'verified'
-        elif 'verified' in seat_types:
+        if 'verified' in seat_types:
             return 'verified-only'
         return 'audit'
 
@@ -129,16 +129,23 @@ class Course(models.Model):
 
     def get_course_seat_name(self, certificate_type, id_verification_required):
         """ Returns the name for a course seat. """
-        name = u'Seat in {}'.format(self.name)
+        #name = u'Seat in {}'.format(self.name)
+        name = u'Inscripción en {}'.format(self.name)
 
         if certificate_type != '':
-            name += u' with {} certificate'.format(certificate_type)
+            #name += u' with {} certificate'.format(certificate_type)
+            certificate_type_str = certificate_type
+            if certificate_type_str == "verified":
+                certificate_type_str = "verificado"
+            name += u' con certificado {}'.format(certificate_type_str)
 
             if id_verification_required:
-                name += u' (and ID verification)'
+                #name += u' (and ID verification)'
+                name += u' (y verificación de ID)'
 
         return name
 
+    @transaction.atomic
     def create_or_update_seat(
             self,
             certificate_type,
@@ -148,10 +155,12 @@ class Course(models.Model):
             expires=None,
             credit_hours=None,
             remove_stale_modes=True,
-            create_enrollment_code=False
+            create_enrollment_code=False,
+            sku=None,
     ):
         """
-        Creates course seat products.
+        Creates and updates course seat products.
+        IMPORTANT: Requires the Partner sku (from the stock record) to be passed in for updates.
 
         Arguments:
             certificate_type(str): The seat type.
@@ -165,65 +174,44 @@ class Course(models.Model):
             credit_hours(int): Number of credit hours provided.
             remove_stale_modes(bool): Remove stale modes.
             create_enrollment_code(bool): Whether an enrollment code is created in addition to the seat.
+            sku(str): The partner_sku for the product stored as part of the Stock Record. This is used
+                to perform a GET on the seat as a unique identifier both Ecommerce and Discovery know about.
 
         Returns:
             Product:  The seat that has been created or updated.
         """
         certificate_type = certificate_type.lower()
-        course_id = six.text_type(self.id)
+        course_id = str(self.id)
 
-        if certificate_type == self.certificate_type_for_mode('audit'):
-            # Yields a match if attribute names do not include 'certificate_type'.
-            certificate_type_query = ~Q(attributes__name='certificate_type')
-        else:
-            # Yields a match if attribute with name 'certificate_type' matches provided value.
-            certificate_type_query = Q(
-                attributes__name='certificate_type',
-                attribute_values__value_text=certificate_type
-            )
-
-        id_verification_required_query = Q(
-            attributes__name='id_verification_required',
-            attribute_values__value_boolean=id_verification_required
-        )
-
-        if credit_provider is None:
-            # Yields a match if attribute names do not include 'credit_provider'.
-            credit_provider_query = ~Q(attributes__name='credit_provider')
-        else:
-            # Yields a match if attribute with name 'credit_provider' matches provided value.
-            credit_provider_query = Q(
-                attributes__name='credit_provider',
-                attribute_values__value_text=credit_provider
-            )
-
-        seats = self.seat_products.filter(certificate_type_query)
         try:
-            seat = seats.filter(
-                id_verification_required_query
-            ).get(
-                credit_provider_query
-            )
-
+            product_id = StockRecord.objects.get(partner_sku=sku, partner=self.partner).product_id
+            seat = self.seat_products.get(id=product_id)
             logger.info(
                 'Retrieved course seat child product with certificate type [%s] for [%s] from database.',
                 certificate_type,
                 course_id
             )
-        except Product.DoesNotExist:
+        except (StockRecord.DoesNotExist, Product.DoesNotExist):
             seat = Product()
             logger.info(
-                'Course seat product with certificate type [%s] for [%s] does not exist. Instantiated a new instance.',
+                'Course seat product with certificate type [%s] for [%s] does not exist. Attempted look up using sku '
+                '[%s]. Instantiated a new instance.',
                 certificate_type,
-                course_id
+                course_id,
+                sku
             )
 
         seat.course = self
         seat.structure = Product.CHILD
         seat.parent = self.parent_seat_product
         seat.is_discountable = True
-        seat.title = self.get_course_seat_name(certificate_type, id_verification_required)
         seat.expires = expires
+
+        id_verification_required_query = Q(
+            attributes__name='id_verification_required',
+            attribute_values__value_boolean=id_verification_required
+        )
+        seat.title = self.get_course_seat_name(certificate_type, id_verification_required)
 
         seat.save()
 
@@ -271,10 +259,14 @@ class Course(models.Model):
                 attributes__name='id_verification_required',
                 attribute_values__value_boolean=not id_verification_required
             )
+            certificate_type_query = Q(
+                attributes__name='certificate_type',
+                attribute_values__value_text=certificate_type
+            )
 
             # Delete seats with a different verification requirement, assuming the seats
             # have not been purchased.
-            seats.annotate(orders=Count('line')).filter(
+            self.seat_products.filter(certificate_type_query).annotate(orders=Count('line')).filter(
                 id_verification_required_query,
                 orders=0
             ).delete()
@@ -310,8 +302,12 @@ class Course(models.Model):
         enrollment_code = self.get_enrollment_code()
 
         if not enrollment_code:
-            title = 'Enrollment code for {seat_type} seat in {course_name}'.format(
-                seat_type=seat_type,
+            seat_type_str = seat_type
+            if seat_type_str == "verified":
+                seat_type_str = "verificada"
+            #title = 'Enrollment code for {seat_type} seat in {course_name}'.format(
+            title = 'Código de inscripción {seat_type} en {course_name}'.format(
+                seat_type=seat_type_str,
                 course_name=self.name
             )
             enrollment_code = Product(

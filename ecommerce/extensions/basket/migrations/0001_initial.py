@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-from __future__ import absolute_import, unicode_literals
+
 
 from django.db import migrations, models
 
@@ -49,7 +49,7 @@ class Migration(migrations.Migration):
             fields=[
                 ('id', models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
                 ('value', models.CharField(max_length=255, verbose_name='Value')),
-                ('line', models.ForeignKey(verbose_name='Line', related_name='attributes', to='basket.Line')),
+                ('line', models.ForeignKey(verbose_name='Line', related_name='attributes', to='basket.Line', on_delete=models.CASCADE)),
             ],
             options={
                 'verbose_name_plural': 'Line attributes',

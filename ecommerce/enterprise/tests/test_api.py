@@ -1,4 +1,4 @@
-from __future__ import absolute_import
+
 
 import ddt
 import httpretty
@@ -6,6 +6,7 @@ from django.conf import settings
 from edx_django_utils.cache import TieredCache
 from mock import patch
 from oscar.core.loading import get_model
+from oscar.test.factories import BasketFactory
 from requests.exceptions import ConnectionError as ReqConnectionError
 
 from ecommerce.core.tests import toggle_switch
@@ -36,6 +37,8 @@ class EnterpriseAPITests(EnterpriseServiceMockMixin, DiscoveryTestMixin, TestCas
         self.request.user = self.learner
         self.request.site = self.site
         self.request.strategy = DefaultStrategy()
+
+        self.basket = BasketFactory(site=self.site, owner=self.learner, strategy=self.request.strategy)
 
     def tearDown(self):
         # Reset HTTPretty state (clean up registered urls and request history)
@@ -158,3 +161,47 @@ class EnterpriseAPITests(EnterpriseServiceMockMixin, DiscoveryTestMixin, TestCas
 
         with self.assertRaises(ReqConnectionError):
             self._assert_contains_course_runs(False, [self.course_run.id], 'fake-uuid', 'fake-uuid')
+
+    @patch('ecommerce.enterprise.api.fetch_enterprise_learner_data')
+    @patch('ecommerce.enterprise.api.get_enterprise_id_for_current_request_user_from_jwt')
+    def test_get_enterprise_id_for_user_fetch_learner_data_has_uuid(self, mock_get_jwt_uuid, mock_fetch):
+        """
+        Verify get_enterprise_id_for_user returns enterprise id if jwt does not have
+        enterprise uuid, but is able to fetch it via api call
+        """
+        mock_get_jwt_uuid.return_value = None
+        mock_fetch.return_value = {
+            'results': [
+                {
+                    'enterprise_customer': {
+                        'uuid': 'my-uuid'
+                    }
+                }
+            ]
+        }
+        assert enterprise_api.get_enterprise_id_for_user('some-site', self.learner) == 'my-uuid'
+
+    @patch('ecommerce.enterprise.api.fetch_enterprise_learner_data')
+    @patch('ecommerce.enterprise.api.get_enterprise_id_for_current_request_user_from_jwt')
+    def test_get_enterprise_id_for_user_fetch_errors(self, mock_get_jwt_uuid, mock_fetch):
+        """
+        Verify if that learner data fetch errors, get_enterprise_id_for_user
+        returns None
+        """
+        mock_get_jwt_uuid.return_value = None
+        mock_fetch.side_effect = [KeyError]
+
+        assert enterprise_api.get_enterprise_id_for_user('some-site', self.learner) is None
+
+    @patch('ecommerce.enterprise.api.fetch_enterprise_learner_data')
+    @patch('ecommerce.enterprise.api.get_enterprise_id_for_current_request_user_from_jwt')
+    def test_get_enterprise_id_for_user_no_uuid_in_response(self, mock_get_jwt_uuid, mock_fetch):
+        """
+        Verify if learner data fetch is successful but does not include uuid field,
+        None is returned
+        """
+        mock_get_jwt_uuid.return_value = None
+        mock_fetch.return_value = {
+            'results': []
+        }
+        assert enterprise_api.get_enterprise_id_for_user('some-site', self.learner) is None

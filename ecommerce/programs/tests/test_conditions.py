@@ -1,4 +1,4 @@
-from __future__ import absolute_import
+
 
 import ddt
 import httpretty
@@ -209,7 +209,7 @@ class ProgramCourseRunSeatsConditionTests(ProgramTestMixin, TestCase):
 
         # Extract one verified seat for each course
         verified_entitlements = []
-        course_uuids = set([course['uuid'] for course in program['courses']])
+        course_uuids = {course['uuid'] for course in program['courses']}
         for parent_entitlement in Product.objects.filter(
                 product_class__name=COURSE_ENTITLEMENT_PRODUCT_CLASS_NAME, structure=Product.PARENT
         ):

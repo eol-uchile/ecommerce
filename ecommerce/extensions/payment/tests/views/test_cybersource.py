@@ -1,13 +1,16 @@
 """ Tests of the Payment Views. """
-from __future__ import absolute_import, unicode_literals
+
 
 import itertools
 import json
 
 import ddt
+import httpretty
 import mock
 import responses
+from CyberSource.rest import ApiException, RESTResponse
 from django.conf import settings
+from django.contrib.auth import get_user
 from django.test.client import RequestFactory
 from django.urls import reverse
 from freezegun import freeze_time
@@ -17,18 +20,27 @@ from oscar.test import factories
 from testfixtures import LogCapture
 
 from ecommerce.core.constants import ENROLLMENT_CODE_PRODUCT_CLASS_NAME, ENROLLMENT_CODE_SWITCH
-from ecommerce.core.models import BusinessClient
+from ecommerce.core.models import BusinessClient, User
 from ecommerce.core.tests import toggle_switch
 from ecommerce.core.url_utils import get_lms_url
 from ecommerce.courses.tests.factories import CourseFactory
 from ecommerce.extensions.api.serializers import OrderSerializer
 from ecommerce.extensions.basket.constants import PURCHASER_BEHALF_ATTRIBUTE
-from ecommerce.extensions.basket.utils import basket_add_organization_attribute
+from ecommerce.extensions.basket.utils import (
+    basket_add_organization_attribute,
+    get_payment_microfrontend_or_basket_url
+)
 from ecommerce.extensions.checkout.mixins import EdxOrderPlacementMixin
+from ecommerce.extensions.checkout.utils import get_receipt_page_url
 from ecommerce.extensions.order.constants import PaymentEventTypeName
+from ecommerce.extensions.payment.core.sdn import SDNClient
 from ecommerce.extensions.payment.exceptions import InvalidBasketError, InvalidSignatureError
 from ecommerce.extensions.payment.processors.cybersource import Cybersource
-from ecommerce.extensions.payment.tests.mixins import CybersourceMixin, CybersourceNotificationTestsMixin
+from ecommerce.extensions.payment.tests.mixins import (
+    CybersourceMixin,
+    CybersourceNotificationTestsMixin,
+    CyberSourceRESTAPIMixin
+)
 from ecommerce.extensions.payment.views.cybersource import CybersourceInterstitialView
 from ecommerce.extensions.test.factories import create_basket, create_order
 from ecommerce.invoice.models import Invoice
@@ -37,6 +49,8 @@ from ecommerce.tests.testcases import TestCase
 JSON = 'application/json'
 
 Basket = get_model('basket', 'Basket')
+BasketAttribute = get_model('basket', 'BasketAttribute')
+BasketAttributeType = get_model('basket', 'BasketAttributeType')
 Order = get_model('order', 'Order')
 OrderNumberGenerator = get_class('order.utils', 'OrderNumberGenerator')
 PaymentEvent = get_model('order', 'PaymentEvent')
@@ -48,7 +62,7 @@ Source = get_model('payment', 'Source')
 post_checkout = get_class('checkout.signals', 'post_checkout')
 
 
-class LoginMixin(object):
+class LoginMixin:
     def setUp(self):
         super(LoginMixin, self).setUp()
         self.user = self.create_user()
@@ -56,15 +70,108 @@ class LoginMixin(object):
 
 
 @ddt.ddt
-class CybersourceSubmitViewTests(CybersourceMixin, TestCase):
-    path = reverse('cybersource:submit')
+@httpretty.activate
+class CybersourceAuthorizeViewTests(CyberSourceRESTAPIMixin, TestCase):
+    path = reverse('cybersource:authorize')
+    CYBERSOURCE_VIEW_LOGGER_NAME = 'ecommerce.extensions.payment.views.cybersource'
 
     def setUp(self):
-        super(CybersourceSubmitViewTests, self).setUp()
+        super().setUp()
         self.user = self.create_user()
         self.client.login(username=self.user.username, password=self.password)
 
+        self.pending_responses = []
+
+        def next_response(*args, **kwargs):  # pylint: disable=unused-argument
+            response = self.pending_responses.pop(0)
+            if isinstance(response, Exception):
+                raise response
+            return response
+
+        request_patcher = mock.patch(
+            'CyberSource.api_client.ApiClient.request',
+            side_effect=next_response
+        )
+        self.mock_cybersource_request = request_patcher.start()
+        self.addCleanup(request_patcher.stop)
+
+        jwt_patcher = mock.patch('ecommerce.extensions.payment.processors.cybersource.jwt', name="jwt")
+        self.mock_jwt = jwt_patcher.start()
+        self.mock_jwt.decode.return_value = {
+            'data': {'number': 'xxxx xxxx xxxx 1111'}
+        }
+        self.addCleanup(jwt_patcher.stop)
+
+        capture_context_patcher = mock.patch(
+            'ecommerce.extensions.payment.processors.cybersource.CybersourceREST._unexpired_capture_contexts',
+            # pylint: disable=line-too-long
+            return_value=[
+                (
+                    {
+                        "keyId": "eyJraWQiOiIzZyIsImFsZyI6IlJTMjU2In0.eyJmbHgiOnsicGF0aCI6Ii9mbGV4L3YyL3Rva2VucyIsImRhdGEiOiJENU9tMHhEUmNVL2x4RS9HdVdJYm9oQUFFR0VZdnNVcGY1Q0FST1lFcXcwSGp4L056NWkxZTV1Z2hCNklHV3hUdFAvNXBWQUdNSzQ5VFJyRkh4RGZBZjVwN29Ga2tWcTVEeUV5YVgzOXhuUThrejRcdTAwM2QiLCJvcmlnaW4iOiJodHRwczovL3Rlc3RmbGV4LmN5YmVyc291cmNlLmNvbSIsImp3ayI6eyJrdHkiOiJSU0EiLCJlIjoiQVFBQiIsInVzZSI6ImVuYyIsIm4iOiJsMjVlMmNGVERPVVRJc28zbHg2ai1nUWRlekg3TWhpWC01SHM5TmhtS1NpVnNqanRXQmFtMGh5WlUzbVpRUTMwb2FVUE1GalIyOUtPSW43S2MzM2RxeWc2M3NEV29hd0VWTTNGamcwVVVBYnp4dXk0T1gtaGxOQVRUd25UVkR3Z2xwa2g4N0x0V0h4Z28telU2Qjd6Zno4d0xVZDA0d3VYb05oTHZKNENLVlJvTG53UG9hMnlxWkhFMi11Sks0UXNVNGtsV05VY25fNjRWNy1QTE9YeTBxWjd6a1ppb1ZWaDVDQWRlTTdFYm5lOG9FY0RfQlJ2OW9uWlhYUllSUWt0OV9VMGpKWlVVVV9ieEtKS20weHRKRlFzUW4tOWp6b1cyMVJtUWhFN19XT3hWNUc4b28wNU56MnJubGx0NFRaaWJhMWhWc2xmaVY3cUZGbkt6aXFxaXciLCJraWQiOiIwN2d1WEp1R1Y5NWxsdWdTZUJ0alZoWjkwMnVQY3c0cyJ9fSwiY3R4IjpbeyJkYXRhIjp7InRhcmdldE9yaWdpbnMiOlsiaHR0cHM6Ly93d3cubWVyY2hhbnQuY29tIiwiaHR0cHM6Ly9zb21lLm90aGVyLnBhcmVudC5jb20iXSwibWZPcmlnaW4iOiJodHRwczovL3Rlc3RmbGV4LmN5YmVyc291cmNlLmNvbSJ9LCJ0eXBlIjoibWYtMC4xMS4wIn1dLCJpc3MiOiJGbGV4IEFQSSIsImV4cCI6MTU4NTE0OTA4MywiaWF0IjoxNTg1MTQ4MTgzLCJqdGkiOiJHTnBJNzU2a2JTd1FZTm9zIn0.QJHfV4BsXmAs4YcPMibVxsrmMPdlyNkpdPvID_7qhoYcPBjXI5Yu_Ghj7OWWaH2vYr4JseJvFlhfs9WQndcFD9lEO9qEX3f0ZdxENmwSPAwvqGJ2m5_Dgln29qd0-0jp_bCLbFWL8v_ftSu6IiIsTBghYt_zI8QE0Uw_lmMP7Uo7BcfHXELY8UhCyJa1MOytSdtVIdqHPH4yX_VLT2DtFLynQEIFRmNnd_WRhuAzZIS9Gp41Zc_Fb9T6R6j8d77atKI1KY6sdNA5OSksfr2Qboi3-AjM7BRUQUprB_HzMcbTinmbYCgPo3POUeB1dqcLvpGAelj1Ooc5i5U9Q-AG4Q",
+                        "der": None,
+                        "jwk": None
+                    }, {
+                        "flx": {
+                            "path": "/flex/v2/tokens",
+                            "data": "D5Om0xDRcU/lxE/GuWIbohAAEGEYvsUpf5CAROYEqw0Hjx/Nz5i1e5ughB6IGWxTtP/5pVAGMK49TRrFHxDfAf5p7oFkkVq5DyEyaX39xnQ8kz4=",
+                            "origin": "https://testflex.cybersource.com",
+                            "jwk": {
+                                "kty": "RSA",
+                                "e": "AQAB",
+                                "use": "enc",
+                                "n": "l25e2cFTDOUTIso3lx6j-gQdezH7MhiX-5Hs9NhmKSiVsjjtWBam0hyZU3mZQQ30oaUPMFjR29KOIn7Kc33dqyg63sDWoawEVM3Fjg0UUAbzxuy4OX-hlNATTwnTVDwglpkh87LtWHxgo-zU6B7zfz8wLUd04wuXoNhLvJ4CKVRoLnwPoa2yqZHE2-uJK4QsU4klWNUcn_64V7-PLOXy0qZ7zkZioVVh5CAdeM7Ebne8oEcD_BRv9onZXXRYRQkt9_U0jJZUUU_bxKJKm0xtJFQsQn-9jzoW21RmQhE7_WOxV5G8oo05Nz2rnllt4TZiba1hVslfiV7qFFnKziqqiw",
+                                "kid": "07guXJuGV95llugSeBtjVhZ902uPcw4s"
+                            }
+                        },
+                        "ctx": [
+                            {
+                                "data": {
+                                    "targetOrigins": [
+                                        "https://www.merchant.com",
+                                        "https://some.other.parent.com"
+                                    ],
+                                    "mfOrigin": "https://testflex.cybersource.com"
+                                },
+                                "type": "mf-0.11.0"
+                            }
+                        ],
+                        "iss": "Flex API",
+                        "exp": 1568983443,
+                        "iat": 1568982543,
+                        "jti": "GNpI756kbSwQYNos"
+                    }
+                )
+            ]
+            # pylint: enable=line-too-long
+        )
+        self.mock_unexpired_capture_contexts = capture_context_patcher.start()
+        self.addCleanup(capture_context_patcher.stop)
+
+        sdn_patcher = mock.patch.object(SDNClient, 'search', return_value={'total': 0})
+        sdn_patcher.start()
+        self.addCleanup(sdn_patcher.stop)
+
+        self.mock_access_token_response()
+
+    def _create_valid_basket(self):
+        """ Creates a Basket ready for checkout. """
+        basket = create_basket(owner=self.user, site=self.site)
+        basket.strategy = Selector().strategy()
+        basket.thaw()
+        return basket
+
+    def _assert_basket_error(self, basket_id, error_msg):
+        response = self.client.post(self.path, self._generate_data(basket_id))
+        self.assertEqual(response.status_code, 400)
+        expected = {
+            'error': error_msg,
+            'field_errors': {'basket': error_msg}
+        }
+        self.assertDictEqual(response.json(), expected)
+
     def _generate_data(self, basket_id):
+        country = factories.CountryFactory(iso_3166_1_a2='US', printable_name="United States")
         return {
             'basket': basket_id,
             'first_name': 'Test',
@@ -74,7 +181,335 @@ class CybersourceSubmitViewTests(CybersourceMixin, TestCase):
             'city': 'Cambridge',
             'state': 'MA',
             'postal_code': '02139',
-            'country': 'US',
+            'country': country.iso_3166_1_a2,
+            'payment_token': 'eyJraWQiOiIwOFJxdVc1MjVMdnNhb2g2ck41aE1saExUQ1NKaE1iNyIsImFsZyI6IlJTMjU2In0.eyJkYXRhIjp7ImV4cGlyYXRpb25ZZWFyIjoiMjAyMiIsIm51bWJlciI6IjQxMTExMVhYWFhYWDExMTEiLCJleHBpcmF0aW9uTW9udGgiOiIwMSIsInR5cGUiOiIwMDEifSwiaXNzIjoiRmxleC8wOCIsImV4cCI6MTYwMjg2NDQyMiwidHlwZSI6Im1mLTAuMTEuMCIsImlhdCI6MTYwMjg2MzUyMiwianRpIjoiMUUzUUlKSFBDMEI0R0JWM0hSVkFBVDdMTlc3WlhIQU9QUE5ZTk44UEpYQVIxT0g4TlNIVDVGODlDNTI2MTA2NSJ9.VYO3omXc1kyg7LejBYgxYCvkseDc3CVR-vuN65Tr_GNeUo9nJwmaGMC0OgJevecRxdCVkma-S1pNGL1USKPnuuKoM0FYpasfbGXKoR6o1KscB65Cbr_1D4UiRe2j1EhNsYsm8xI_mRHtTVhseT0hY0f8y-90gnRcCN7JUCHzdb4ArS4imMccF9nJ3NHd-24FGeB7qjp_w4UPSO53g7eLVHqaT09n4rmJUaIYFyfXed48rIcKf1XbMF-jVnPsCaD3iLxPY-I27PAyErkZbMOdENqXkPthgQ0pHGpu97v0FjipCOSK2C3dk-PrB1ZQBLtcHiVSJcQvNxLhdOa8-QvRKg',  # pylint: disable=line-too-long
+        }
+
+    def _prep_request_success(self, data, status=200, reason='OK'):
+        self.pending_responses.append(
+            mock.Mock(
+                spec=RESTResponse,
+                resp=None,
+                status=status,
+                reason=reason,
+                # This response has been pruned to only the needed data.
+                data=self.convertToCybersourceWireFormat(data)
+            )
+        )
+
+    def _prep_request_invalid(self, data, request_id, status=400, reason='BAD REQUEST'):
+
+        self.pending_responses.append(
+            ApiException(
+                http_resp=mock.Mock(
+                    spec=RESTResponse,
+                    resp=None,
+                    status=status,
+                    reason=reason,
+                    getheaders=mock.Mock(return_value={'v-c-correlation-id': request_id}),
+                    # This response has been pruned to only the needed data.
+                    data=self.convertToCybersourceWireFormat(data)
+                )
+            )
+        )
+
+    def assert_basket_retrieval_error(self, basket_id):
+        error_msg = 'There was a problem retrieving your basket. Refresh the page to try again.'
+        return self._assert_basket_error(basket_id, error_msg)
+
+    def test_login_required(self):
+        """ Verify the view returns a 401 for unauthorized users. """
+        self.client.logout()
+        response = self.client.post(self.path)
+        assert response.status_code == 401
+
+    @ddt.data('get', 'put', 'patch', 'head')
+    def test_invalid_methods(self, method):
+        """ Verify the view only supports the POST and OPTION HTTP methods."""
+        response = getattr(self.client, method)(self.path)
+        assert response.status_code == 405
+
+    def test_missing_basket(self):
+        """ Verify the view returns an HTTP 400 status if the basket is missing. """
+        self.assert_basket_retrieval_error(9999)
+
+    def test_mismatched_basket_owner(self):
+        """ Verify the view returns an HTTP 400 status if the posted basket does not belong to the requesting user. """
+        basket = factories.BasketFactory()
+        self.assert_basket_retrieval_error(basket.id)
+
+        basket = factories.BasketFactory(owner=self.create_user())
+        self.assert_basket_retrieval_error(basket.id)
+
+    @ddt.data(Basket.MERGED, Basket.SAVED, Basket.FROZEN, Basket.SUBMITTED)
+    def test_invalid_basket_status(self, status):
+        """ Verify the view returns an HTTP 400 status if the basket is in an invalid state. """
+        basket = factories.BasketFactory(owner=self.user, status=status)
+        error_msg = 'There was a problem retrieving your basket. Refresh the page to try again.'
+        self._assert_basket_error(basket.id, error_msg)
+
+    def test_sdn_check_match(self):
+        """Verify the endpoint returns an sdn check failure if the sdn check finds a hit."""
+        self.site.siteconfiguration.enable_sdn_check = True
+        self.site.siteconfiguration.save()
+
+        basket_id = self._create_valid_basket().id
+        data = self._generate_data(basket_id)
+        expected_response = {'error': 'There was an error submitting the basket', 'sdn_check_failure': {'hit_count': 1}}
+        logger_name = self.CYBERSOURCE_VIEW_LOGGER_NAME
+
+        with mock.patch.object(SDNClient, 'search', return_value={'total': 1}) as sdn_validator_mock:
+            with mock.patch.object(User, 'deactivate_account', return_value=True):
+                with LogCapture(logger_name) as cybersource_logger:
+                    response = self.client.post(self.path, data)
+                    self.assertTrue(sdn_validator_mock.called)
+                    self.assertEqual(response.json(), expected_response)
+                    self.assertEqual(response.status_code, 403)
+                    cybersource_logger.check_present(
+                        (
+                            logger_name,
+                            'INFO',
+                            'SDNCheck function called for basket [{}]. It received 1 hit(s).'.format(basket_id)
+                        ),
+                    )
+                    # Make sure user is logged out
+                    self.assertEqual(get_user(self.client).is_authenticated, False)
+
+    @freeze_time('2016-01-01')
+    def test_valid_request(self):
+        """ Verify the view completes the transaction if the request is valid. """
+        basket = self._create_valid_basket()
+        data = self._generate_data(basket.id)
+        order_number = OrderNumberGenerator().order_number_from_basket_id(
+            self.site.siteconfiguration.partner,
+            basket.id,
+        )
+        # This response has been pruned to only the needed data.
+        self._prep_request_success(
+            """{"links":{"_self":{"href":"/pts/v2/payments/6031827608526961004260","method":"GET"}},"id":"6031827608526961004260","submit_time_utc":"2020-10-20T08:32:44Z","status":"AUTHORIZED","client_reference_information":{"code":"%s"},"processor_information":{"approval_code":"307640","transaction_id":"380294307616695","network_transaction_id":"380294307616695","response_code":"000","avs":{"code":"G","code_raw":"G"},"card_verification":{"result_code":"M","result_code_raw":"M"},"consumer_authentication_response":{"code":"99"}},"payment_information":{"tokenized_card":{"type":"001"},"account_features":{"category":"F"}},"order_information":{"amount_details":{"total_amount":"5.00","authorized_amount":"5.00","currency":"USD"}}}""" % order_number  # pylint: disable=line-too-long
+        )
+        response = self.client.post(self.path, data)
+
+        assert response.status_code == 201
+        assert response['content-type'] == JSON
+        assert json.loads(response.content)['receipt_page_url'] == get_receipt_page_url(
+            self.site.siteconfiguration,
+            order_number=order_number,
+            disable_back_button=True,
+        )
+
+        # Ensure the basket is Submitted
+        basket = Basket.objects.get(pk=basket.pk)
+        self.assertEqual(basket.status, Basket.SUBMITTED)
+
+    def test_duplicate_payment(self):
+        """ Verify the view errors as expected if there is a duplicate payment attempt after a successful payment. """
+        # This unit test describes the current state of the code, but I'm not sure if there are other
+        # situations that would result in a duplicate payment that we should handle differently.
+
+        basket = self._create_valid_basket()
+        data = self._generate_data(basket.id)
+        order_number = OrderNumberGenerator().order_number_from_basket_id(
+            self.site.siteconfiguration.partner,
+            basket.id,
+        )
+        # This response has been pruned to only the needed data.
+        self._prep_request_success(
+            """{"id":"6028635251536131304003","status":"AUTHORIZED","client_reference_information":{"code":"%s"},"processor_information":{"approval_code":"831000","transaction_id":"558196000003814","network_transaction_id":"558196000003814","card_verification":{"result_code":"3"}},"payment_information":{"tokenized_card":{"type":"001"},"account_features":{"category":"A"}},"order_information":{"amount_details":{"total_amount":"99.00","authorized_amount":"99.00","currency":"USD"}}}""" % order_number  # pylint: disable=line-too-long
+        )
+        response = self.client.post(self.path, data)
+
+        assert response.status_code == 201
+        assert response['content-type'] == JSON
+        assert json.loads(response.content)['receipt_page_url'] == get_receipt_page_url(
+            self.site.siteconfiguration,
+            order_number=order_number,
+            disable_back_button=True,
+        )
+
+        # Ensure the basket is Submitted
+        basket = Basket.objects.get(pk=basket.pk)
+        self.assertEqual(basket.status, Basket.SUBMITTED)
+
+        # This response has been pruned to only the needed data.
+        self._prep_request_invalid(
+            """{"submitTimeUtc":"2020-09-30T18:53:23Z","status":"INVALID_REQUEST","reason":"DUPLICATE_REQUEST","message":"Declined - The\u00a0merchantReferenceCode\u00a0sent with this authorization request matches the merchantReferenceCode of another authorization request that you sent in the last 15 minutes."}""",  # pylint: disable=line-too-long
+            '6028635251536131304003'
+        )
+        response = self.client.post(self.path, data)
+
+        # The original basket is frozen, and the new basket is empty, so currentyl this triggers an error response
+        assert response.status_code == 400
+        assert response['content-type'] == JSON
+        assert json.loads(response.content) == {
+            'error': 'There was a problem retrieving your basket. Refresh the page to try again.',
+            'field_errors': {
+                'basket': 'There was a problem retrieving your basket. Refresh the page to try again.'
+            }
+        }
+
+        # Ensure the basket is frozen
+        basket = Basket.objects.get(pk=basket.pk + 1)
+        self.assertEqual(basket.status, Basket.OPEN)
+
+    @freeze_time('2016-01-01')
+    def test_decline(self):
+        """ Verify the view reports an error if the transaction is only authorized pending review. """
+        basket = self._create_valid_basket()
+        data = self._generate_data(basket.id)
+        order_number = OrderNumberGenerator().order_number_from_basket_id(
+            self.site.siteconfiguration.partner,
+            basket.id,
+        )
+        # This response has been pruned to only the needed data.
+        self._prep_request_success(
+            """{"links":{"_self":{"href":"/pts/v2/payments/6021683934456376603262","method":"GET"}},"id":"6021683934456376603262","status":"DECLINED","error_information":{"reason":"PROCESSOR_DECLINED","message":"Decline - General decline of the card. No other information provided by the issuing bank."},"client_reference_information":{"code":"%s"},"processor_information":{"transaction_id":"460282531937765","network_transaction_id":"460282531937765","response_code":"005","avs":{"code":"D","code_raw":"D"},"card_verification":{"result_code":"M","result_code_raw":"M"}},"payment_information":{"account_features":{"category":"F"}}}""" % order_number  # pylint: disable=line-too-long
+        )
+        response = self.client.post(self.path, data)
+
+        assert response.status_code == 400
+        assert response['content-type'] == JSON
+
+        request = RequestFactory(SERVER_NAME='testserver.fake').post(self.path, data)
+        request.site = self.site
+        assert json.loads(response.content)['redirectTo'] == get_payment_microfrontend_or_basket_url(request)
+
+        # Ensure the basket is frozen
+        basket = Basket.objects.get(pk=basket.pk)
+        self.assertEqual(basket.status, Basket.MERGED)
+        assert Basket.objects.count() == 2
+
+    @freeze_time('2016-01-01')
+    def test_authorized_pending_review_request(self):
+        """ Verify the view reports an error if the transaction is only authorized pending review. """
+        basket = self._create_valid_basket()
+        data = self._generate_data(basket.id)
+        order_number = OrderNumberGenerator().order_number_from_basket_id(
+            self.site.siteconfiguration.partner,
+            basket.id,
+        )
+        # This response has been pruned to only the needed data.
+        self._prep_request_success(
+            """{"links":{"_self":{"href":"/pts/v2/payments/6038898237296087603031","method":"GET"}},"id":"6038898237296087603031","submit_time_utc":"2020-10-28T12:57:04Z","status":"AUTHORIZED_PENDING_REVIEW","error_information":{"reason":"AVS_FAILED","message":"Soft Decline - The authorization request was approved by the issuing bank but declined by CyberSource because it did not pass the Address Verification Service (AVS) check."},"client_reference_information":{"code":"%s"},"processor_information":{"approval_code":"028252","transaction_id":"580302466249046","network_transaction_id":"580302466249046","response_code":"000","avs":{"code":"N","code_raw":"N"},"card_verification":{"result_code":"M","result_code_raw":"M"}},"payment_information":{"account_features":{"category":"C"}},"order_information":{"amount_details":{"authorized_amount":"25.00","currency":"USD"}}}""" % order_number  # pylint: disable=line-too-long
+        )
+        self._prep_request_success(
+            """{"links":{"_self":{"href":"/pts/v2/payments/6038898237296087603031/reversals","method":"GET"}},"id":"6038898237296087603031","submit_time_utc":"2020-10-28T12:57:04Z","status":"REVERSED","reversal_amount_details":{"original_transaction_amount":"25.00", "reversed_amount":"25.00","currency":"USD"}}"""  # pylint: disable=line-too-long
+        )
+        response = self.client.post(self.path, data)
+
+        assert response.status_code == 400
+        assert response['content-type'] == JSON
+
+        request = RequestFactory(SERVER_NAME='testserver.fake').post(self.path, data)
+        request.site = self.site
+        assert json.loads(response.content)['redirectTo'] == get_payment_microfrontend_or_basket_url(request)
+
+        # Ensure the basket is frozen
+        basket = Basket.objects.get(pk=basket.pk)
+        self.assertEqual(basket.status, Basket.MERGED)
+        assert Basket.objects.count() == 2
+
+        # Ensure that 2 requests were sent to cybersource
+        assert self.mock_cybersource_request.call_count == 2
+
+        # Ensure that 2 requests and 2 responses were recorded as PaymentProcessorResponses
+        assert PaymentProcessorResponse.objects.all().count() == 4
+
+    @freeze_time('2016-01-01')
+    def test_authorized_pending_review_request_reversal_failed(self):
+        """ Verify the view reports an error if the transaction is only authorized pending review. """
+        basket = self._create_valid_basket()
+        data = self._generate_data(basket.id)
+        order_number = OrderNumberGenerator().order_number_from_basket_id(
+            self.site.siteconfiguration.partner,
+            basket.id,
+        )
+        # This response has been pruned to only the needed data.
+        self._prep_request_success(
+            """{"links":{"_self":{"href":"/pts/v2/payments/6038898237296087603031","method":"GET"}},"id":"6038898237296087603031","submit_time_utc":"2020-10-28T12:57:04Z","status":"AUTHORIZED_PENDING_REVIEW","error_information":{"reason":"AVS_FAILED","message":"Soft Decline - The authorization request was approved by the issuing bank but declined by CyberSource because it did not pass the Address Verification Service (AVS) check."},"client_reference_information":{"code":"%s"},"processor_information":{"approval_code":"028252","transaction_id":"580302466249046","network_transaction_id":"580302466249046","response_code":"000","avs":{"code":"N","code_raw":"N"},"card_verification":{"result_code":"M","result_code_raw":"M"}},"payment_information":{"account_features":{"category":"C"}},"order_information":{"amount_details":{"authorized_amount":"25.00","currency":"USD"}}}""" % order_number  # pylint: disable=line-too-long
+        )
+        self._prep_request_invalid(
+            """{"submitTimeUtc":"2020-09-30T18:53:23Z","status":"INVALID_REQUEST","reason":"DUPLICATE_REQUEST","message":"Declined - The\u00a0merchantReferenceCode\u00a0sent with this authorization request matches the merchantReferenceCode of another authorization request that you sent in the last 15 minutes."}""",  # pylint: disable=line-too-long
+            '6038898237296087603031'
+        )
+
+        response = self.client.post(self.path, data)
+
+        assert response.status_code == 400
+        assert response['content-type'] == JSON
+
+        request = RequestFactory(SERVER_NAME='testserver.fake').post(self.path, data)
+        request.site = self.site
+        assert json.loads(response.content)['redirectTo'] == get_payment_microfrontend_or_basket_url(request)
+
+        # Ensure the basket is frozen
+        basket = Basket.objects.get(pk=basket.pk)
+        self.assertEqual(basket.status, Basket.MERGED)
+        assert Basket.objects.count() == 2
+
+        # Ensure that 2 requests were sent to cybersource
+        assert self.mock_cybersource_request.call_count == 2
+
+        # Ensure that 2 requests and 2 responses were recorded as PaymentProcessorResponses
+        assert PaymentProcessorResponse.objects.all().count() == 4
+
+    def test_invalid_card_type(self):
+        """ Verify the view redirects to the receipt page if the payment is made with an invalid card type. """
+        basket = self._create_valid_basket()
+        data = self._generate_data(basket.id)
+        # This response has been pruned to only the needed data.
+        self._prep_request_invalid(
+            """{"submitTimeUtc":"2020-10-20T15:44:23Z","status":"INVALID_REQUEST","reason":"CARD_TYPE_NOT_ACCEPTED","message":"Decline - The card type is not accepted by the payment processor."}""",  # pylint: disable=line-too-long
+            '6028635251536131304003'
+        )
+        response = self.client.post(self.path, data)
+
+        assert response.status_code == 400
+        assert response['content-type'] == JSON
+        assert json.loads(response.content) == {}
+
+        # Ensure the basket is frozen
+        basket = Basket.objects.get(pk=basket.pk)
+        self.assertEqual(basket.status, Basket.FROZEN)
+
+    def test_field_error(self):
+        """ Verify the view responds with a JSON object containing fields with errors, when input is invalid. """
+        basket = self._create_valid_basket()
+        data = self._generate_data(basket.id)
+        field = 'first_name'
+        del data[field]
+
+        response = self.client.post(self.path, data)
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response['content-type'], JSON)
+
+        errors = response.json()['field_errors']
+        self.assertIn(field, errors)
+
+
+@ddt.ddt
+class CybersourceSubmitViewTests(CybersourceMixin, TestCase):
+    path = reverse('cybersource:submit')
+    CYBERSOURCE_VIEW_LOGGER_NAME = 'ecommerce.extensions.payment.views.cybersource'
+
+    def setUp(self):
+        super(CybersourceSubmitViewTests, self).setUp()
+        self.user = self.create_user()
+        self.client.login(username=self.user.username, password=self.password)
+
+    def _generate_data(self, basket_id):
+        country = factories.CountryFactory(iso_3166_1_a2='US', printable_name="United States")
+        return {
+            'basket': basket_id,
+            'first_name': 'Test',
+            'last_name': 'User',
+            'address_line1': '141 Portland Ave.',
+            'address_line2': 'Floor 9',
+            'city': 'Cambridge',
+            'state': 'MA',
+            'postal_code': '02139',
+            'country': country.iso_3166_1_a2,
         }
 
     def _create_valid_basket(self):
@@ -92,7 +527,7 @@ class CybersourceSubmitViewTests(CybersourceMixin, TestCase):
         """ Verify the view redirects anonymous users to the login page. """
         self.client.logout()
         response = self.client.post(self.path)
-        expected_url = '{base}?next={path}'.format(base=self.get_full_url(path=reverse(settings.LOGIN_URL)),
+        expected_url = '{base}?next={path}'.format(base=reverse(settings.LOGIN_URL),
                                                    path=self.path)
         self.assertRedirects(response, expected_url, fetch_redirect_response=False)
 
@@ -113,7 +548,7 @@ class CybersourceSubmitViewTests(CybersourceMixin, TestCase):
 
     def test_missing_basket(self):
         """ Verify the view returns an HTTP 400 status if the basket is missing. """
-        self.assert_basket_retrieval_error(1234)
+        self.assert_basket_retrieval_error(9999)
 
     def test_mismatched_basket_owner(self):
         """ Verify the view returns an HTTP 400 status if the posted basket does not belong to the requesting user. """
@@ -129,6 +564,33 @@ class CybersourceSubmitViewTests(CybersourceMixin, TestCase):
         basket = factories.BasketFactory(owner=self.user, status=status)
         error_msg = 'There was a problem retrieving your basket. Refresh the page to try again.'
         self._assert_basket_error(basket.id, error_msg)
+
+    def test_sdn_check_match(self):
+        """Verify the endpoint returns an sdn check failure if the sdn check finds a hit."""
+        self.site.siteconfiguration.enable_sdn_check = True
+        self.site.siteconfiguration.save()
+
+        basket_id = self._create_valid_basket().id
+        data = self._generate_data(basket_id)
+        expected_response = {'error': 'There was an error submitting the basket', 'sdn_check_failure': {'hit_count': 1}}
+        logger_name = self.CYBERSOURCE_VIEW_LOGGER_NAME
+
+        with mock.patch.object(SDNClient, 'search', return_value={'total': 1}) as sdn_validator_mock:
+            with mock.patch.object(User, 'deactivate_account', return_value=True):
+                with LogCapture(logger_name) as cybersource_logger:
+                    response = self.client.post(self.path, data)
+                    self.assertTrue(sdn_validator_mock.called)
+                    self.assertEqual(response.json(), expected_response)
+                    self.assertEqual(response.status_code, 403)
+                    cybersource_logger.check_present(
+                        (
+                            logger_name,
+                            'INFO',
+                            'SDNCheck function called for basket [{}]. It received 1 hit(s).'.format(basket_id)
+                        ),
+                    )
+                    # Make sure user is logged out
+                    self.assertEqual(get_user(self.client).is_authenticated, False)
 
     @freeze_time('2016-01-01')
     def test_valid_request(self):
@@ -209,7 +671,12 @@ class CybersourceInterstitialViewTests(CybersourceNotificationTestsMixin, TestCa
     path = reverse('cybersource:redirect')
     view = CybersourceInterstitialView
 
-    def test_payment_declined(self):
+    @ddt.data(
+        ('12345678-1234-1234-1234-123456789abc', 1),
+        (None, 0)
+    )
+    @ddt.unpack
+    def test_payment_declined(self, bundle, bundle_attr_count):
         """
         Verify that the user is redirected to the basket summary page when their
         payment is declined.
@@ -217,6 +684,12 @@ class CybersourceInterstitialViewTests(CybersourceNotificationTestsMixin, TestCa
         # Basket merging clears lines on the old basket. We need to take a snapshot
         # of lines currently on this basket before it gets merged with a new basket.
         old_lines = list(self.basket.lines.all())
+        if bundle:
+            BasketAttribute.objects.update_or_create(
+                basket=self.basket,
+                attribute_type=BasketAttributeType.objects.get(name='bundle_identifier'),
+                value_text=bundle
+            )
 
         notification = self.generate_notification(
             self.basket,
@@ -224,7 +697,7 @@ class CybersourceInterstitialViewTests(CybersourceNotificationTestsMixin, TestCa
         )
 
         logger_name = self.CYBERSOURCE_VIEW_LOGGER_NAME
-        with mock.patch.object(self.view, 'validate_notification', side_effect=TransactionDeclined):
+        with mock.patch.object(self.view, 'validate_order_completion', side_effect=TransactionDeclined):
             with LogCapture(logger_name) as cybersource_logger:
                 response = self.client.post(self.path, notification)
 
@@ -237,17 +710,24 @@ class CybersourceInterstitialViewTests(CybersourceNotificationTestsMixin, TestCa
 
                 new_basket = Basket.objects.get(status='Open')
                 merged_basket_count = Basket.objects.filter(status='Merged').count()
+                new_basket_bundle_count = BasketAttribute.objects.filter(
+                    basket=new_basket,
+                    attribute_type=BasketAttributeType.objects.get(name='bundle_identifier')
+                ).count()
 
                 self.assertEqual(list(new_basket.lines.all()), old_lines)
                 self.assertEqual(merged_basket_count, 1)
+                self.assertEqual(new_basket_bundle_count, bundle_attr_count)
 
+                log_msg = 'Created new basket [{}] from old basket [{}] for declined transaction with bundle [{}].'
                 cybersource_logger.check_present(
                     (
                         logger_name,
                         'INFO',
-                        'Created new basket [{}] from old basket [{}] for declined transaction.'.format(
+                        log_msg.format(
                             new_basket.id,
                             self.basket.id,
+                            bundle
                         )
                     ),
                 )
@@ -262,7 +742,7 @@ class CybersourceInterstitialViewTests(CybersourceNotificationTestsMixin, TestCa
             self.basket,
             billing_address=self.billing_address,
         )
-        with mock.patch.object(self.view, 'validate_notification', side_effect=error_class):
+        with mock.patch.object(self.view, 'validate_order_completion', side_effect=error_class):
             response = self.client.post(self.path, notification)
             self.assertRedirects(response, self.get_full_url(reverse('payment_error')))
 

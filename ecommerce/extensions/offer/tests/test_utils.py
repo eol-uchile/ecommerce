@@ -1,4 +1,4 @@
-from __future__ import absolute_import
+
 
 from decimal import Decimal
 
@@ -92,6 +92,7 @@ class UtilTests(DiscoveryTestMixin, TestCase):
     @mock.patch('ecommerce.extensions.offer.utils.send_offer_assignment_email')
     @ddt.data(
         (
+            'subject',
             'hi',
             'bye',
             {
@@ -102,21 +103,38 @@ class UtilTests(DiscoveryTestMixin, TestCase):
                 'code_expiration_date': '2018-12-19'
             },
             None,
+            ''
+        ),
+        (
+            'subject',
+            'hi',
+            'bye',
+            {
+                'offer_assignment_id': 555,
+                'learner_email': 'johndoe@unknown.com',
+                'code': 'GIL7RUEOU7VHBH7Q',
+                'redemptions_remaining': 10,
+                'code_expiration_date': '2018-12-19'
+            },
+            None,
+            'https://bears.party'
         ),
     )
     @ddt.unpack
     def test_send_assigned_offer_email(
             self,
+            subject,
             greeting,
             closing,
             tokens,
             side_effect,
+            base_enterprise_url,
             mock_sailthru_task,
     ):
         """ Test that the offer assignment email message is sent to async task. """
-        email_subject = settings.OFFER_ASSIGNMENT_EMAIL_SUBJECT
         mock_sailthru_task.delay.side_effect = side_effect
         send_assigned_offer_email(
+            subject,
             greeting,
             closing,
             tokens.get('offer_assignment_id'),
@@ -124,17 +142,43 @@ class UtilTests(DiscoveryTestMixin, TestCase):
             tokens.get('code'),
             tokens.get('redemptions_remaining'),
             tokens.get('code_expiration_date'),
+            base_enterprise_url,
         )
         mock_sailthru_task.delay.assert_called_once_with(
             tokens.get('learner_email'),
             tokens.get('offer_assignment_id'),
-            email_subject,
-            mock.ANY
+            subject,
+            mock.ANY,
+            None,
+            base_enterprise_url,
+        )
+
+    @mock.patch('ecommerce.extensions.offer.utils.send_offer_assignment_email')
+    def test_send_assigned_offer_email_without_base_ent_url(self, mock_sailthru_task):
+        send_assigned_offer_email(
+            "You have mail",
+            "you",
+            "KTHXBAI",
+            42,
+            "bears@bearparty.com",
+            'BearsOnly',
+            1,
+            '2020-12-19',
+        )
+
+        mock_sailthru_task.delay.assert_called_once_with(
+            "bears@bearparty.com",
+            42,
+            "You have mail",
+            mock.ANY,
+            None,
+            '',
         )
 
     @mock.patch('ecommerce.extensions.offer.utils.send_offer_update_email')
     @ddt.data(
         (
+            'subject',
             'hi',
             'bye',
             {
@@ -150,6 +194,7 @@ class UtilTests(DiscoveryTestMixin, TestCase):
     @ddt.unpack
     def test_send_assigned_offer_reminder_email(
             self,
+            subject,
             greeting,
             closing,
             tokens,
@@ -159,9 +204,9 @@ class UtilTests(DiscoveryTestMixin, TestCase):
         """
         Test that the offer assignment reminder email message is sent to the async task in ecommerce-worker.
         """
-        email_subject = settings.OFFER_REMINDER_EMAIL_SUBJECT
         mock_sailthru_task.delay.side_effect = side_effect
         send_assigned_offer_reminder_email(
+            subject,
             greeting,
             closing,
             tokens.get('learner_email'),
@@ -172,13 +217,14 @@ class UtilTests(DiscoveryTestMixin, TestCase):
         )
         mock_sailthru_task.delay.assert_called_once_with(
             tokens.get('learner_email'),
-            email_subject,
+            subject,
             mock.ANY
         )
 
     @mock.patch('ecommerce.extensions.offer.utils.send_offer_update_email')
     @ddt.data(
         (
+            'subject',
             'hi',
             'bye',
             {
@@ -191,6 +237,7 @@ class UtilTests(DiscoveryTestMixin, TestCase):
     @ddt.unpack
     def test_send_offer_revoked_email(
             self,
+            subject,
             greeting,
             closing,
             tokens,
@@ -200,9 +247,9 @@ class UtilTests(DiscoveryTestMixin, TestCase):
         """
         Test that the offer revocation email message is sent to the async task in ecommerce-worker.
         """
-        email_subject = settings.OFFER_REVOKE_EMAIL_SUBJECT
         mock_sailthru_task.delay.side_effect = side_effect
         send_revoked_offer_email(
+            subject,
             greeting,
             closing,
             tokens.get('learner_email'),
@@ -210,7 +257,7 @@ class UtilTests(DiscoveryTestMixin, TestCase):
         )
         mock_sailthru_task.delay.assert_called_once_with(
             tokens.get('learner_email'),
-            email_subject,
+            subject,
             mock.ANY
         )
 
@@ -271,14 +318,13 @@ class UtilTests(DiscoveryTestMixin, TestCase):
 
         # Compare strings, ignoring whitespace differences
         expected_email = """
-            hi {CODE} &lt;h1&gt;there&lt;/h1&gt;
-            Text
-            {DOES_NOT_EXIST} johndoe@unknown.com
-            code: GIL7RUEOU7VHBH7Q GIL7RUEOU7VHBH7Q
-            {}
-            { abc d }
-            More text.
-            bye {CODE}, &lt;h3&gt;come back soon!&lt;/h3&gt;
+            hi {CODE} &lt;h1&gt;there&lt;/h1&gt;\n&nbsp;\n&nbsp;
+            Text\n&nbsp;
+            {DOES_NOT_EXIST} johndoe@unknown.com\n&nbsp;
+            code: GIL7RUEOU7VHBH7Q GIL7RUEOU7VHBH7Q\n&nbsp;
+            {}\n&nbsp;
+            { abc d }\n&nbsp;
+            More text.\n&nbsp;\n&nbsp;bye {CODE}, &lt;h3&gt;come back soon!&lt;/h3&gt;
             """
         self.assertEqual(email.split(), expected_email.split())
 
@@ -299,11 +345,11 @@ class UtilTests(DiscoveryTestMixin, TestCase):
 
         # Compare strings, ignoring whitespace differences
         expected_email = """
-            Text
-            {DOES_NOT_EXIST} johndoe2@unknown.com
-            code: ABC7RUEOU7VHBH7Q ABC7RUEOU7VHBH7Q
-            {}
-            { abc d }
-            More text.
+            \n&nbsp; Text\n&nbsp;
+            {DOES_NOT_EXIST} johndoe2@unknown.com\n&nbsp;
+            code: ABC7RUEOU7VHBH7Q ABC7RUEOU7VHBH7Q\n&nbsp;
+            {}\n&nbsp;
+            { abc d }\n&nbsp;
+            More text.\n&nbsp;
             """
         self.assertEqual(email.split(), expected_email.split())

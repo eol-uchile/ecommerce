@@ -1,14 +1,18 @@
-from __future__ import absolute_import, unicode_literals
 
+import datetime
 import logging
 import re
 
-import six
+from dateutil.relativedelta import relativedelta
 from django.conf import settings
+from django.contrib.contenttypes.fields import GenericForeignKey
+from django.contrib.contenttypes.models import ContentType
+from django.core.exceptions import ObjectDoesNotExist
 from django.db import models
 from django.utils.translation import ugettext_lazy as _
 from django_extensions.db.models import TimeStampedModel
 from edx_django_utils.cache import TieredCache
+from jsonfield.fields import JSONField
 from oscar.apps.offer.abstract_models import (
     AbstractBenefit,
     AbstractCondition,
@@ -25,12 +29,17 @@ from threadlocals.threadlocals import get_current_request
 
 from ecommerce.core.utils import get_cache_key, log_message_and_raise_validation_error
 from ecommerce.extensions.offer.constants import (
+    EMAIL_TEMPLATE_TYPES,
+    NUDGE_EMAIL_CYCLE,
+    NUDGE_EMAIL_TEMPLATE_TYPES,
     OFFER_ASSIGNED,
     OFFER_ASSIGNMENT_EMAIL_BOUNCED,
     OFFER_ASSIGNMENT_EMAIL_PENDING,
     OFFER_ASSIGNMENT_REVOKED,
+    OFFER_MAX_USES_DEFAULT,
     OFFER_REDEEMED
 )
+from ecommerce.extensions.offer.utils import format_assigned_offer_email
 
 OFFER_PRIORITY_ENTERPRISE = 10
 OFFER_PRIORITY_VOUCHER = 20
@@ -156,17 +165,44 @@ class Benefit(AbstractBenefit):
                         applicable_lines.remove(metadata['line'])
 
             return [(line.product.stockrecords.first().price_excl_tax, line) for line in applicable_lines]
-        else:
-            return super(Benefit, self).get_applicable_lines(offer, basket, range=range)  # pylint: disable=bad-super-call
+        return super(Benefit, self).get_applicable_lines(offer, basket, range=range)  # pylint: disable=bad-super-call
 
 
 class ConditionalOffer(AbstractConditionalOffer):
+    DAILY = 'DAILY'
+    WEEKLY = 'WEEKLY'
+    MONTHLY = 'MONTHLY'
+    USAGE_EMAIL_FREQUENCY_CHOICES = [
+        (DAILY, 'Daily'),
+        (WEEKLY, 'Weekly'),
+        (MONTHLY, 'Monthly'),
+    ]
     UPDATABLE_OFFER_FIELDS = ['email_domains', 'max_uses']
     email_domains = models.CharField(max_length=255, blank=True, null=True)
-    site = models.ForeignKey(
-        'sites.Site', verbose_name=_('Site'), null=True, blank=True, default=None
+    sales_force_id = models.CharField(max_length=30, blank=True, null=True)
+    max_user_discount = models.DecimalField(
+        verbose_name='Max user discount',
+        max_digits=12,
+        decimal_places=2,
+        null=True,
+        help_text='When an offer has given more discount than this threshold to orders of a user, then the offer '
+                  'becomes unavailable for that user',
+        blank=True
     )
-    partner = models.ForeignKey('partner.Partner', null=True, blank=True)
+    emails_for_usage_alert = models.TextField(
+        verbose_name='Emails to receive offer usage alert',
+        blank=True,
+        help_text='Comma separated emails which will receive the offer usage alerts'
+    )
+    usage_email_frequency = models.CharField(
+        max_length=8,
+        choices=USAGE_EMAIL_FREQUENCY_CHOICES,
+        default=DAILY,
+    )
+    site = models.ForeignKey(
+        'sites.Site', verbose_name=_('Site'), null=True, blank=True, default=None, on_delete=models.CASCADE
+    )
+    partner = models.ForeignKey('partner.Partner', null=True, blank=True, on_delete=models.CASCADE)
 
     # Do not record the slug field in the history table because AutoSlugField is not compatible with
     # django-simple-history.  Background: https://github.com/edx/course-discovery/pull/332
@@ -189,7 +225,7 @@ class ConditionalOffer(AbstractConditionalOffer):
     def clean_email_domains(self):
 
         if self.email_domains:
-            if not isinstance(self.email_domains, six.string_types):
+            if not isinstance(self.email_domains, str):
                 log_message_and_raise_validation_error(
                     'Failed to create ConditionalOffer. ConditionalOffer email domains must be of type string.'
                 )
@@ -229,8 +265,9 @@ class ConditionalOffer(AbstractConditionalOffer):
                         log_message_and_raise_validation_error(error_message)
 
     def clean_max_global_applications(self):
-        if self.max_global_applications is not None:
-            if not isinstance(self.max_global_applications, six.integer_types) or self.max_global_applications < 1:
+        # enterprise offers have their own cleanup logic
+        if self.priority != OFFER_PRIORITY_ENTERPRISE and self.max_global_applications is not None:
+            if not isinstance(self.max_global_applications, int) or self.max_global_applications < 1:
                 log_message_and_raise_validation_error(
                     'Failed to create ConditionalOffer. max_global_applications field must be a positive number.'
                 )
@@ -316,7 +353,7 @@ class ConditionalOffer(AbstractConditionalOffer):
 
 
 def validate_credit_seat_type(course_seat_types):
-    if not isinstance(course_seat_types, six.string_types):
+    if not isinstance(course_seat_types, str):
         log_message_and_raise_validation_error('Failed to create Range. Credit seat types must be of type string.')
 
     course_seat_types_list = course_seat_types.split(',')
@@ -481,7 +518,8 @@ class Condition(AbstractCondition):
     enterprise_customer_uuid = models.UUIDField(
         null=True,
         blank=True,
-        verbose_name=_('EnterpriseCustomer UUID')
+        verbose_name=_('EnterpriseCustomer UUID'),
+        db_index=True
     )
     # De-normalizing the EnterpriseCustomer name for optimization purposes.
     enterprise_customer_name = models.CharField(
@@ -498,9 +536,15 @@ class Condition(AbstractCondition):
     program_uuid = models.UUIDField(
         null=True,
         blank=True,
-        verbose_name=_('Program UUID')
+        verbose_name=_('Program UUID'),
+        db_index=True
     )
     history = HistoricalRecords()
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['enterprise_customer_uuid', 'program_uuid'])
+        ]
 
 
 class OfferAssignment(TimeStampedModel):
@@ -512,22 +556,32 @@ class OfferAssignment(TimeStampedModel):
         (OFFER_ASSIGNMENT_REVOKED, _("Code has been revoked for this user.")),
     )
 
-    offer = models.ForeignKey('offer.ConditionalOffer')
-    code = models.CharField(max_length=128)
-    user_email = models.EmailField()
+    offer = models.ForeignKey('offer.ConditionalOffer', on_delete=models.CASCADE)
+    code = models.CharField(max_length=128, db_index=True)
+    user_email = models.EmailField(db_index=True)
+    assignment_date = models.DateTimeField(blank=True, verbose_name='Offer Assignment Date', null=True)
+    last_reminder_date = models.DateTimeField(blank=True, verbose_name='Last Reminder Date', null=True)
+    revocation_date = models.DateTimeField(blank=True, verbose_name='Offer Revocation Date', null=True)
     status = models.CharField(
         max_length=255,
+        db_index=True,
         choices=STATUS_CHOICES,
         default=OFFER_ASSIGNMENT_EMAIL_PENDING,
     )
     voucher_application = models.ForeignKey(
         'voucher.VoucherApplication',
         null=True,
-        blank=True
+        blank=True, on_delete=models.CASCADE
     )
     history = HistoricalRecords()
 
-    def __unicode__(self):
+    class Meta:
+        indexes = [
+            models.Index(fields=['code', 'user_email']),
+            models.Index(fields=['code', 'status']),
+        ]
+
+    def __str__(self):
         return "{code}-{email}".format(code=self.code, email=self.user_email)
 
 
@@ -538,6 +592,197 @@ class OfferAssignmentEmailAttempt(models.Model):
     """
     offer_assignment = models.ForeignKey('offer.OfferAssignment', on_delete=models.CASCADE)
     send_id = models.CharField(max_length=255, unique=True)
+
+
+class AbstractBaseEmailTemplate(TimeStampedModel):
+    email_greeting = models.TextField(blank=True, null=True)
+    email_closing = models.TextField(blank=True, null=True)
+    email_subject = models.TextField(blank=True, null=True)
+    active = models.BooleanField(
+        help_text=_('Make a particular template version active.'),
+        default=True,
+    )
+    name = models.CharField(max_length=255)
+
+    class Meta:
+        abstract = True
+
+
+class OfferAssignmentEmailTemplates(AbstractBaseEmailTemplate):
+    enterprise_customer = models.UUIDField(help_text=_('UUID for an EnterpriseCustomer from the Enterprise Service.'))
+    email_type = models.CharField(max_length=32, choices=EMAIL_TEMPLATE_TYPES)
+
+    class Meta:
+        ordering = ('enterprise_customer', '-active',)
+        indexes = [
+            models.Index(fields=['enterprise_customer', 'email_type'])
+        ]
+
+    @classmethod
+    def get_template(cls, template_id=None):
+        try:
+            template = cls.objects.get(id=template_id)
+        except ObjectDoesNotExist:
+            template = None
+        return template
+
+    def __str__(self):
+        return "{ec}-{email_type}-{active}".format(
+            ec=self.enterprise_customer,
+            email_type=self.email_type,
+            active=self.active
+        )
+
+
+class OfferAssignmentEmailSentRecord(TimeStampedModel):
+    enterprise_customer = models.UUIDField(help_text=_('UUID for an EnterpriseCustomer from the Enterprise Service.'))
+    email_type = models.CharField(max_length=32, choices=EMAIL_TEMPLATE_TYPES)
+    template_content_type = models.ForeignKey(
+        ContentType,
+        null=True,
+        on_delete=models.CASCADE,
+    )
+    template_id = models.PositiveIntegerField(null=True)
+    template_content_object = GenericForeignKey('template_content_type', 'template_id')
+
+    @classmethod
+    def create_email_record(cls, enterprise_customer_uuid, email_type, template):
+        """
+        Create an instance of OfferAssignmentEmailSentRecord.
+        Arguments:
+            enterprise_customer_uuid (str): The uuid of the enterprise that sent the email
+            email_type (str): The type of the email sent e:g Assign, Remind or Revoke
+            template (obj): The instance of the template used to send email e:g OfferAssignmentEmailTemplates
+        """
+        template_record = OfferAssignmentEmailSentRecord(
+            template_content_object=template,
+            enterprise_customer=enterprise_customer_uuid,
+            email_type=email_type
+        )
+        template_record.save()
+        return template_record
+
+    def __str__(self):
+        return "{ec}-{email_type}".format(
+            ec=self.enterprise_customer,
+            email_type=self.email_type,
+        )
+
+
+class OfferUsageEmail(TimeStampedModel):
+    offer = models.ForeignKey('offer.ConditionalOffer', on_delete=models.CASCADE)
+    offer_email_metadata = JSONField(default={})
+
+    @classmethod
+    def create_record(cls, offer, meta_data=None):
+        """
+        Create object by given data.
+        """
+        record = cls(offer=offer)
+        if meta_data:
+            record.offer_email_metadata = meta_data
+        record.save()
+        return record
+
+
+class CodeAssignmentNudgeEmailTemplates(AbstractBaseEmailTemplate):
+    email_type = models.CharField(max_length=32, choices=NUDGE_EMAIL_TEMPLATE_TYPES)
+
+    @classmethod
+    def get_nudge_email_template(cls, email_type):
+        """
+        Return the 'CodeAssignmentNudgeEmailTemplates' object of the
+        given email_type or None in case of model exceptions.
+        """
+        nudge_email_template = None
+        try:
+            nudge_email_template = cls.objects.get(email_type=email_type, active=True)
+        except (cls.DoesNotExist, cls.MultipleObjectsReturned) as exe:
+            logger.error(
+                '[CodeAssignmentNudgeEmailTemplates] Raised an error while getting the object for email_type %s,'
+                'Message: %s',
+                email_type,
+                exe
+            )
+        return nudge_email_template
+
+    def get_email_content(self, user_email, code):
+        """
+        Return the formatted email body and subject.
+        """
+        email_body = None
+        voucher_qs = Voucher.objects.filter(code=code)
+        if voucher_qs.exists():
+            voucher = voucher_qs.first()
+            offer = voucher.best_offer
+            max_usage_limit = offer.max_global_applications or OFFER_MAX_USES_DEFAULT
+
+            email_body = format_assigned_offer_email(
+                self.email_greeting,
+                self.email_closing,
+                user_email,
+                code,
+                max_usage_limit if offer.max_global_applications == Voucher.MULTI_USE_PER_CUSTOMER else 1,
+                voucher.end_datetime
+            )
+        else:
+            logger.warning(
+                '[Code Assignment Nudge Email] Unable to send the email for user_email: %s, code: %s because code does '
+                'not have associated voucher.',
+                user_email,
+                code
+            )
+        return email_body, self.email_subject
+
+
+class CodeAssignmentNudgeEmails(TimeStampedModel):
+    email_template = models.ForeignKey('offer.CodeAssignmentNudgeEmailTemplates', on_delete=models.CASCADE)
+    code = models.CharField(max_length=128, db_index=True)
+    user_email = models.EmailField(db_index=True)
+    email_date = models.DateTimeField()
+    already_sent = models.BooleanField(help_text=_('Email has been sent.'), default=False)
+    is_subscribed = models.BooleanField(help_text=_('This user should receive email'), default=True)
+
+    class Meta:
+        unique_together = (('email_template', 'code', 'user_email'),)
+
+    @classmethod
+    def subscribe_nudge_emails(cls, user_email, code):
+        """
+        Subscribe the nudge email cycle for given user email and code.
+        """
+        now_datetime = datetime.datetime.now()
+        for days, email_type in NUDGE_EMAIL_CYCLE.items():
+            email_template = CodeAssignmentNudgeEmailTemplates.get_nudge_email_template(email_type=email_type)
+            if email_template:
+                data = {
+                    'code': code,
+                    'user_email': user_email,
+                    'email_template': email_template
+                }
+                if not cls.objects.filter(**data).exists():
+                    data['email_date'] = now_datetime + relativedelta(days=int(days))
+                    cls.objects.create(**data)
+                    logger.info(
+                        'Created a nudge email for user_email: %s, code: %s, email_type: %s',
+                        user_email, code, email_type
+                    )
+            else:
+                logger.warning(
+                    'Unable to create a nudge email for user_email: %s, code: %s, email_type: %s',
+                    user_email, code, email_type
+                )
+
+    @classmethod
+    def unsubscribe_from_nudging(cls, codes, user_emails):
+        """
+        Unsubscribe users from receiving nudge emails.
+
+        Args:
+            codes (list): list of voucher codes
+            user_emails (listt): list of user emails
+        """
+        cls.objects.filter(code__in=codes, user_email__in=user_emails, already_sent=False).update(is_subscribed=False)
 
 
 from oscar.apps.offer.models import *  # noqa isort:skip pylint: disable=wildcard-import,unused-wildcard-import,wrong-import-position,wrong-import-order,ungrouped-imports

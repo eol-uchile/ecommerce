@@ -1,4 +1,4 @@
-from __future__ import absolute_import
+
 
 from django.utils.translation import ugettext_lazy as _
 from oscar.core.loading import get_model
@@ -11,7 +11,7 @@ PercentageDiscountBenefit = get_model('offer', 'PercentageDiscountBenefit')
 class ManualEnrollmentOrderDiscountBenefit(BenefitWithoutRangeMixin, PercentageBenefitMixin, PercentageDiscountBenefit):
     """ Manual course enrollment related PercentageDiscountBenefit without an attached range. """
 
-    class Meta(object):
+    class Meta:
         app_label = 'order'
         proxy = True
 

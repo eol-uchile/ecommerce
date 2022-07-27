@@ -1,15 +1,15 @@
-from __future__ import absolute_import, unicode_literals
+
 
 import logging
 
 import requests
-import six
 import waffle
 from dateutil.parser import parse
 from django.conf import settings
 from django.contrib.sites.models import Site
 from django.core.management import BaseCommand
 from django.db import transaction
+from django.db.models import Q
 from edx_rest_api_client.client import EdxRestApiClient
 
 from ecommerce.courses.models import Course
@@ -17,7 +17,7 @@ from ecommerce.courses.models import Course
 logger = logging.getLogger(__name__)
 
 
-class MigratedCourse(object):
+class MigratedCourse:
     def __init__(self, course_id, site_domain):
         self.site = Site.objects.get(domain=site_domain)
         self.site_configuration = self.site.siteconfiguration
@@ -112,7 +112,7 @@ class MigratedCourse(object):
         except Exception as e:  # pylint: disable=broad-except
             logger.warning(
                 'Calling Commerce API failed with: [%s]. Falling back to Course Structure API.',
-                six.text_type(e)
+                str(e)
             )
             course_name, course_verification_deadline = self._query_course_structure_api()
 
@@ -128,8 +128,24 @@ class MigratedCourse(object):
             price = mode['min_price']
             expires = mode.get('expiration_datetime')
             expires = parse(expires) if expires else None
+            # Have to pass in the sku in case it is an update
+            sku = None
+            if self.course.seat_products.exists():
+                if certificate_type == Course.certificate_type_for_mode('audit'):
+                    # Yields a match if attribute names do not include 'certificate_type'.
+                    certificate_type_query = ~Q(attributes__name='certificate_type')
+                else:
+                    # Yields a match if attribute with name 'certificate_type' matches provided value.
+                    certificate_type_query = Q(
+                        attributes__name='certificate_type',
+                        attribute_values__value_text=certificate_type
+                    )
+                seat = self.course.seat_products.filter(certificate_type_query).first()
+                stock_record = seat and seat.stockrecords.first()
+                if stock_record:
+                    sku = stock_record.partner_sku
             self.course.create_or_update_seat(
-                certificate_type, id_verification_required, price, expires=expires, remove_stale_modes=False
+                certificate_type, id_verification_required, price, expires=expires, remove_stale_modes=False, sku=sku
             )
 
 
@@ -160,7 +176,7 @@ class Command(BaseCommand):
             return
 
         for course_id in course_ids:
-            course_id = six.text_type(course_id)
+            course_id = str(course_id)
             try:
                 with transaction.atomic():
                     migrated_course = MigratedCourse(course_id, site_domain)

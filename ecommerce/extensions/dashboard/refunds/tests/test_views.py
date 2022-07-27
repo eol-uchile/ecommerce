@@ -1,4 +1,4 @@
-from __future__ import absolute_import
+
 
 from django.urls import reverse
 
@@ -7,7 +7,7 @@ from ecommerce.extensions.refund.tests.factories import RefundFactory
 from ecommerce.tests.testcases import TestCase
 
 
-class RefundViewTestMixin(object):
+class RefundViewTestMixin:
     def setUp(self):
         super(RefundViewTestMixin, self).setUp()
         self.user = self.create_user(is_superuser=True, is_staff=True)
@@ -41,7 +41,7 @@ class RefundViewTestMixin(object):
 
 
 class RefundListViewTests(RefundViewTestMixin, TestCase):
-    path = reverse('dashboard:refunds:list')
+    path = reverse('dashboard:refunds-list')
     username = 'hackerman'
 
     def test_filtering(self):
@@ -109,4 +109,4 @@ class RefundDetailViewTests(RefundViewTestMixin, TestCase):
         self.user = self.create_user(is_superuser=True, is_staff=True)
 
         refund = RefundFactory()
-        self.path = reverse('dashboard:refunds:detail', args=[refund.id])
+        self.path = reverse('dashboard:refunds-detail', args=[refund.id])

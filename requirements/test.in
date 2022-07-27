@@ -1,25 +1,28 @@
--r pins.txt
+-c pins.txt
 -r base.txt
+-r e2e.txt                  # required for quality
 -r tox.txt
 
 bok_choy
 coverage
 ddt
 diff-cover
-django-nose
 django-webtest
+edx-i18n-tools              # required for quality
 factory-boy
 freezegun
-futures ; python_version == "2.7"
 httpretty
 isort
 lxml
 mock
 mock-django
-nose-ignore-docstring
 pycodestyle
 pylint
-pysqlite ; python_version == "2.7"  # DB-API 2.0 interface for SQLite 3.x (used as the relational database for most tests)
+pytest
+pytest-cov
+pytest-django
+pytest-django-ordering
+python-memcached==1.58      # required by collectstatic in devstack
 responses
 selenium
 testfixtures                # Provides a LogCapture utility used by several tests

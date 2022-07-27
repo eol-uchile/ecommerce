@@ -1,10 +1,9 @@
-from __future__ import absolute_import, unicode_literals
+
 
 import ddt
 import pycountry
 from oscar.core.loading import get_model
 from oscar.test import factories
-from six.moves import range
 from waffle.models import Switch
 
 from ecommerce.core.constants import ENROLLMENT_CODE_PRODUCT_CLASS_NAME, ENROLLMENT_CODE_SWITCH
@@ -130,10 +129,12 @@ class PaymentFormTests(TestCase):
         switch, __ = Switch.objects.get_or_create(name='optional_location_fields')
         switch.active = True
         switch.save()
+        switch.flush()
         self.assert_form_valid(country='US', state='CA')
         self.assert_form_valid(country='US', address_line1=None)
         switch.active = False
         switch.save()
+        switch.flush()
         self.assert_form_not_valid(country='US', state='CA', address_line1=None)
 
     # Temporarily add this test for codecov for the feature flag added for this test
@@ -164,7 +165,7 @@ class PaymentFormTests(TestCase):
         Verify the field 'organization' and 'purchased_for_organization' is present in the form
         when the basket has an enrollment code product.
         """
-        __, __, enrollment_code = self.prepare_course_seat_and_enrollment_code()
+        _, __, enrollment_code = self.prepare_course_seat_and_enrollment_code()
         basket = self.create_basket_and_add_product(enrollment_code)
         self.request.basket = basket
         data = {
