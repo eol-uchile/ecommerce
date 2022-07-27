@@ -64,7 +64,7 @@ define(["jquery"], function ($) {
       dv = dv == 0 ? 11 : dv;
 
       // Validar que el Cuerpo coincide con su Dígito Verificador
-      if (dvEsperado != dv) {
+      if (dvEsperado != dv || cuerpo.length < 7 || cuerpo.length > 8) {
         rut.setCustomValidity("RUT Inválido");
         rut.reportValidity();
         return false;
