@@ -20,6 +20,12 @@ class Basket(AbstractBasket):
         'sites.Site', verbose_name=_("Site"), null=True, blank=True, default=None, on_delete=models.SET_NULL
     )
 
+    authorization_code = models.CharField(
+        default='',
+        blank=True,
+        max_length=100,
+    )
+
     @property
     def order_number(self):
         return OrderNumberGenerator().order_number(self)

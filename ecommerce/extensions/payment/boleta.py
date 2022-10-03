@@ -196,7 +196,7 @@ def determine_billable_price(basket, product_line, order, payment_processor='web
         billable_conversion_rate = BoletaUSDConversion.objects.first().clp_to_usd
         total = (Decimal(dollars) * Decimal(billable_conversion_rate) * Decimal(product_line.quantity)).quantize(Decimal('1'), rounding=ROUND_HALF_UP)
         total = int(total)
-        
+
         unitPrice = (Decimal(dollars) * Decimal(billable_conversion_rate)).quantize(Decimal('1'), rounding=ROUND_HALF_UP)
         unitPrice = int(unitPrice)
         return unitPrice, total
@@ -231,7 +231,7 @@ def make_boleta_electronica(basket, order, auth, configuration=default_config, p
       configuration - configuration file from a webpay payment processor
     Returns:
       It returns the id of the new boleta
-      
+
       Reference within the VPN
 
       https://ventas-test.uchile.cl/ventas-api-front/api/v1/swagger-ui.html#/ventas-controller/creaVentaUsingPOST
@@ -319,9 +319,11 @@ def make_boleta_electronica(basket, order, auth, configuration=default_config, p
         "recaudaciones": [{
             "monto": order_total,
             "tipoPago": "Tarjeta de Crédito",  # Efectivo | Debito | Tarjeta de Crédito
-            "voucher": basket.order_number,  # numero para gestion interna de transacciones
+            "voucher": basket.authorization_code,  # numero para gestion interna de transacciones
         }],
     }
+
+    logger.info("Información de boleta para API Ventas: {}".format(data))
 
     # Opcional en nuestro caso (Servicio 3) aplica para comuna, direccion, ciudad
     if billing_info.billing_country_iso2 == "CL":
