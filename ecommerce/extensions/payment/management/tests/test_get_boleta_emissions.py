@@ -31,7 +31,7 @@ class TestBoletaEmissionsCommand(BoletaMixin, TestCase):
                     },
                     "id": "{}-{}".format(i, j),
                     "referencia": [{"codigoReferencia": order.number}],
-                    "recaudaciones": [{"monto": int(order.total_incl_tax), "voucher": order.authorization_code}]
+                    "recaudaciones": [{"monto": int(order.total_incl_tax), "voucher": basket.authorization_code}]
                 })
                 if j == 0:
                     boleta = BoletaElectronica(
