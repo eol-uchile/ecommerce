@@ -30,7 +30,8 @@ class TestBoletaEmissionsCommand(BoletaMixin, TestCase):
                         "folio": "folio"
                     },
                     "id": "{}-{}".format(i, j),
-                    "recaudaciones": [{"monto": int(order.total_incl_tax), "voucher": order.number}]
+                    "referencia": [{"codigoReferencia": order.number}],
+                    "recaudaciones": [{"monto": int(order.total_incl_tax), "voucher": order.authorization_code}]
                 })
                 if j == 0:
                     boleta = BoletaElectronica(
@@ -85,7 +86,7 @@ class TestBoletaEmissionsCommand(BoletaMixin, TestCase):
             self.mock_boleta_get_boletas_custom(self.DATE_1, one_boleta)
             self.mock_boleta_get_boletas_custom(self.DATE_1, [], status="INGRESADA")
             self.call_command_action(self.DATE_1)
-    
+
     @responses.activate
     def test_one_to_one_match_mail(self):
         with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
@@ -96,7 +97,7 @@ class TestBoletaEmissionsCommand(BoletaMixin, TestCase):
             self.mock_boleta_get_boletas_custom(self.DATE_1, one_boleta)
             self.mock_boleta_get_boletas_custom(self.DATE_1, [], status="INGRESADA")
             self.call_command_action(self.DATE_1,"--email")
-    
+
     @responses.activate
     def test_one_to_no_local_fail(self):
         with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
@@ -109,7 +110,7 @@ class TestBoletaEmissionsCommand(BoletaMixin, TestCase):
             self.mock_boleta_get_boletas_custom(self.DATE_1, one_boleta)
             self.mock_boleta_get_boletas_custom(self.DATE_1, [], status="INGRESADA")
             self.assertRaises(CommandError, self.call_command_action, self.DATE_1)
-    
+
     @responses.activate
     def test_one_to_no_local_fail_mail(self):
         with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
@@ -135,7 +136,7 @@ class TestBoletaEmissionsCommand(BoletaMixin, TestCase):
             self.mock_boleta_get_boletas_custom(self.DATE_1, two_boletas)
             self.mock_boleta_get_boletas_custom(self.DATE_1, [], status="INGRESADA")
             self.assertRaises(CommandError, self.call_command_action, self.DATE_1)
-    
+
     @responses.activate
     def test_two_to_one_fail_mail(self):
         with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
@@ -161,7 +162,7 @@ class TestBoletaEmissionsCommand(BoletaMixin, TestCase):
             self.mock_boleta_get_boletas_custom(self.DATE_1, two_boletas, status="INGRESADA")
             self.mock_boleta_get_boletas_custom(self.DATE_1, [])
             self.assertRaises(CommandError, self.call_command_action, self.DATE_1)
-    
+
     @responses.activate
     def test_two_to_one_fail_v2_mail(self):
         with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
@@ -174,7 +175,7 @@ class TestBoletaEmissionsCommand(BoletaMixin, TestCase):
             self.mock_boleta_get_boletas_custom(self.DATE_1, two_boletas, status="INGRESADA")
             self.mock_boleta_get_boletas_custom(self.DATE_1, [])
             self.assertRaises(CommandError, self.call_command_action, self.DATE_1, "--email")
-    
+
     @responses.activate
     def test_two_to_three_local_fail(self):
         with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
@@ -195,7 +196,7 @@ class TestBoletaEmissionsCommand(BoletaMixin, TestCase):
             self.mock_boleta_get_boletas_custom(self.DATE_1, two_boletas)
             self.mock_boleta_get_boletas_custom(self.DATE_1, [], status="INGRESADA")
             self.assertRaises(CommandError, self.call_command_action, self.DATE_1)
-    
+
     @responses.activate
     def test_two_to_three_local_fail_mail(self):
         with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
