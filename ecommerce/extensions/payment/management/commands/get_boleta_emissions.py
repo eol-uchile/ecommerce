@@ -36,7 +36,7 @@ class Command(BaseCommand):
 
     def write_remote_boletas(self, boletas, exists, data, filename):
         with open(filename, "w") as f:
-            f.write("order_number,boleta_id,folio,fecha,monto,on_DB\n")
+            f.write("authorization_code,boleta_id,folio,fecha,monto,on_DB\n")
             c = 0
             for boleta_id in boletas:
                 f.write("{},{},{},{},{},{}\n".format(
@@ -123,7 +123,7 @@ class Command(BaseCommand):
 
         # Pair order to (hopefully just one) hash boleta_ids
         for venta in raw_data:
-            order_number = venta["recaudaciones"][0]["voucher"]
+            order_number = venta["referencia"][0]["codigoReferencia"]
             prev = remote_boleta_orders.get(
                 order_number, [])
             prev.append(venta["id"])
@@ -246,7 +246,7 @@ class Command(BaseCommand):
         self.save = options["save"]
         # Emails require a saved file
         if self.email:
-            self.save = True    
+            self.save = True
 
         # Get boletas registry from API
         auth = authenticate_boleta_electronica()
