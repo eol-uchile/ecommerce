@@ -1021,7 +1021,7 @@ class BoletaMixin:
         "config_cuenta_contable": "secret",
         "config_sucursal": "secret",
         "config_reparticion": "secret",
-        "config_identificador_pos": "secret",
+        "config_identificador_pos": "5f468635c2f79500235528db",
         "config_ventas_url": "https://ventas-test.uchile.cl/ventas-api-front/api/v1",
     }
 
@@ -1142,7 +1142,7 @@ class BoletaMixin:
             method=responses.GET,
             url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/ventas/?fecha-desde={}&estado={}'.format(
                 since, status),
-            status=500   
+            status=500
         )
 
     def mock_boleta_get_file(self, id):

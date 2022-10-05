@@ -221,7 +221,7 @@ class BoletaViewsTests(BoletaMixin, TestCase):
         self.create_access_token(self.user)
         self.basket = create_basket(owner=self.user, price="10.0")
         self.order = create_order(basket=self.basket)
-    
+
     def test_recover_boleta_not_configured(self):
         with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS_DISABLED):
             response = self.client.get(reverse("recover_boleta"))
@@ -239,14 +239,14 @@ class BoletaViewsTests(BoletaMixin, TestCase):
             response = self.client.get(reverse("recover_boleta"))
             self.assertTemplateUsed(response, "edx/checkout/boleta_error.html")
             self.assertContains(response, "¡Debe proveer un número de orden!.")
-    
+
     def test_recover_boleta_doesnt_exists(self):
         with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
             self.client.login(username=self.user.username, password=self.password)
             response = self.client.get(reverse("recover_boleta"),{"order_number": self.order.number})
             self.assertTemplateUsed(response, "edx/checkout/boleta_error.html")
             self.assertContains(response, "La boleta solicitada no existe.")
-    
+
     @responses.activate
     def test_recover_boleta_owner(self):
         with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
@@ -256,7 +256,7 @@ class BoletaViewsTests(BoletaMixin, TestCase):
             self.client.login(username=self.user.username, password=self.password)
             response = self.client.get(reverse("recover_boleta"),{"order_number": self.order.number})
             self.assertContains(response, "I'm a PDF file")
-    
+
     @responses.activate
     def test_recover_boleta_owner_404(self):
         with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
@@ -279,7 +279,7 @@ class BoletaViewsTests(BoletaMixin, TestCase):
             response = self.client.get(reverse("recover_boleta"),{"order_number": self.order.number})
             self.assertTemplateUsed(response, "edx/checkout/boleta_error.html")
             self.assertContains(response, "El usuario no es dueño de la orden solicitada.")
-    
+
     @responses.activate
     def test_recover_boleta_not_owner_but_admin(self):
         with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
