@@ -1171,11 +1171,11 @@ class BoletaMixin:
 
         )
 
-    def mock_boleta_get_boletas_custom(self, since, json_response=[], status="INGRESADA"):
+    def mock_boleta_get_boletas_custom(self, since, json_response=[], status="INGRESADA", identificador_pos="secret"):
         responses.add(
             method=responses.GET,
-            url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/ventas/?fecha-desde={}&estado={}'.format(
-                since, status),
+            url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/ventas/?fecha-desde={}&estado={}&identificador-pos={}'.format(
+                since, status, identificador_pos),
             json=json_response
         )
 
@@ -1202,11 +1202,11 @@ class BoletaMixin:
             status=404
         )
 
-    def mock_boleta_get_boletas_500(self, since, status="INGRESADA"):
+    def mock_boleta_get_boletas_500(self, since, status="INGRESADA", identificador_pos="secret"):
         responses.add(
             method=responses.GET,
-            url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/ventas/?fecha-desde={}&estado={}'.format(
-                since, status),
+            url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/ventas/?fecha-desde={}&estado={}&identificador-pos={}'.format(
+                since, status, identificador_pos),
             status=500
         )
 
