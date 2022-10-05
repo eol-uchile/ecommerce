@@ -305,6 +305,7 @@ def make_boleta_electronica(basket, order, auth, configuration=default_config, p
             "saldoAnterior": 0,
         },
         "puntoVenta": {
+            "rutCajero": basket.order_number,
             "cuentaCorriente": True,  # Se requiere para anular la venta
             "identificadorPos": configuration["config_identificador_pos"],
             "sucursal": {  # Opcional
@@ -398,6 +399,7 @@ def get_boleta_details(id, auth_headers, configuration=default_config):
         BoletaElectronicaException
     """
     config_ventas_url = configuration["config_ventas_url"]
+
     try:
         result = requests.get(
             "{}/ventas/{}".format(config_ventas_url, id),
@@ -410,7 +412,7 @@ def get_boleta_details(id, auth_headers, configuration=default_config):
     return result.json()
 
 
-def get_boletas(auth_headers, since, state="CONTABILIZADA", configuration=default_config):
+def get_boletas(auth_headers, since, state="INGRESADA", configuration=default_config):
     """
     Recovers all boletas since a given date
     Arguments:
@@ -424,10 +426,12 @@ def get_boletas(auth_headers, since, state="CONTABILIZADA", configuration=defaul
         BoletaElectronicaException
     """
     config_ventas_url = configuration["config_ventas_url"]
+    identificador_pos = configuration["config_identificador_pos"]
+
     try:
         result = requests.get(
-            "{}/ventas/?fecha-desde={}&estado={}".format(
-                config_ventas_url, since, state),
+            "{}/ventas/?fecha-desde={}&estado={}&identificador-pos={}".format(
+                config_ventas_url, since, state, identificador_pos),
             headers=auth_headers
         )
         error_response = result
