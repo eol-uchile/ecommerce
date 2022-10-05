@@ -36,11 +36,11 @@ class Command(BaseCommand):
 
     def write_remote_boletas(self, boletas, exists, data, filename):
         with open(filename, "w") as f:
-            f.write("authorization_code,boleta_id,folio,fecha,monto,on_DB\n")
+            f.write("order_number,boleta_id,folio,fecha,monto,on_DB\n")
             c = 0
             for boleta_id in boletas:
                 f.write("{},{},{},{},{},{}\n".format(
-                    data[boleta_id]["recaudaciones"][0]["voucher"],
+                    data[boleta_id]["puntoVenta"][0]["rutCajero"],
                     boleta_id,
                     data[boleta_id]["boleta"]["folio"],
                     data[boleta_id]["boleta"]["fechaEmision"],
@@ -123,7 +123,7 @@ class Command(BaseCommand):
 
         # Pair order to (hopefully just one) hash boleta_ids
         for venta in raw_data:
-            order_number = venta["referencia"][0]["codigoReferencia"]
+            order_number = venta["puntoVenta"][0]["rutCajero"]
             prev = remote_boleta_orders.get(
                 order_number, [])
             prev.append(venta["id"])
