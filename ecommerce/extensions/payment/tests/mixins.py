@@ -1021,7 +1021,7 @@ class BoletaMixin:
         "config_cuenta_contable": "secret",
         "config_sucursal": "secret",
         "config_reparticion": "secret",
-        "config_identificador_pos": "5f468635c2f79500235528db",
+        "config_identificador_pos": "secret",
         "config_ventas_url": "https://ventas-test.uchile.cl/ventas-api-front/api/v1",
     }
 
@@ -1090,11 +1090,11 @@ class BoletaMixin:
             }
         )
 
-    def mock_boleta_get_boletas(self, since, status="CONTABILIZADA", total=10, order_number="UA-100001"):
+    def mock_boleta_get_boletas(self, since, status="INGRESADA", total=10, order_number="UA-100001", identificador_pos="secret"):
         responses.add(
             method=responses.GET,
-            url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/ventas/?fecha-desde={}&estado={}'.format(
-                since, status),
+            url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/ventas/?fecha-desde={}&estado={}&identificador-pos={}'.format(
+                since, status, identificador_pos),
             json=[{
                 "boleta": {
                     "fechaEmision": self.BOLETA_DATE,
@@ -1106,7 +1106,7 @@ class BoletaMixin:
 
         )
 
-    def mock_boleta_get_boletas_custom(self, since, json_response=[], status="CONTABILIZADA"):
+    def mock_boleta_get_boletas_custom(self, since, json_response=[], status="INGRESADA"):
         responses.add(
             method=responses.GET,
             url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/ventas/?fecha-desde={}&estado={}'.format(
@@ -1137,7 +1137,7 @@ class BoletaMixin:
             status=404
         )
 
-    def mock_boleta_get_boletas_500(self, since, status="CONTABILIZADA"):
+    def mock_boleta_get_boletas_500(self, since, status="INGRESADA"):
         responses.add(
             method=responses.GET,
             url='https://ventas-test.uchile.cl/ventas-api-front/api/v1/ventas/?fecha-desde={}&estado={}'.format(
