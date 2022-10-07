@@ -112,6 +112,7 @@ def authenticate_boleta_electronica(configuration=default_config, basket=None):
             'grant_type': "client_credentials",
             'scope': client_scope
         })
+        logger.info(result)
         error_response = result
         result.raise_for_status()
     except requests.exceptions.HTTPError as e:
