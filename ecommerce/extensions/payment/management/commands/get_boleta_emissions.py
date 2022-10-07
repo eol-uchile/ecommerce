@@ -123,7 +123,15 @@ class Command(BaseCommand):
 
         # Pair order to (hopefully just one) hash boleta_ids
         for venta in raw_data:
+            if venta["puntoVenta"]["rutCajero"] is None:
+                logger.info("Boleta_id {}, viene con un order_number None".format(venta['id']))
+                continue
             order_number = venta["puntoVenta"]["rutCajero"]
+            try:
+                aux = order_number.split('UA')
+                order_number = "UA-{}".format(aux[1])
+            except Exception as e:
+                logger.error("Error get_boleta_emissions in order_number from rutCajero, error: {}".format(str(e)))
             prev = remote_boleta_orders.get(
                 order_number, [])
             prev.append(venta["id"])
@@ -134,8 +142,8 @@ class Command(BaseCommand):
                 duplicates += len(remote_boleta_orders[boleta])
                 orders += 1
         if duplicates > 0:
-            logger.error("There are {} duplicate boletas for {} orders ...".format(
-                duplicates, orders))
+            logger.error("There are {} duplicate boletas for {} orders. boletas: {}".format(
+                duplicates, orders, raw_data))
             # map ids to a dict
             boletas_data = {}
             for item in raw_data:
