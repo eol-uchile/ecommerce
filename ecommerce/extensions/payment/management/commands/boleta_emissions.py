@@ -24,7 +24,6 @@ class Command(BaseCommand):
         auth = cache.get("boleta_emissions_auth_cache", None)
         if auth == None or auth["expires_in"] < 20:
             auth = authenticate_boleta_electronica(basket=basket)
-            logger.info(auth)
             cache.set("boleta_emissions_auth_cache", auth, auth["expires_in"]//2)
         return auth
 
