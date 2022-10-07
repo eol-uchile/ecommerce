@@ -40,7 +40,7 @@ class Command(BaseCommand):
             c = 0
             for boleta_id in boletas:
                 f.write("{},{},{},{},{},{}\n".format(
-                    data[boleta_id]["recaudaciones"][0]["voucher"],
+                    data[boleta_id]["puntoVenta"]["rutCajero"],
                     boleta_id,
                     data[boleta_id]["boleta"]["folio"],
                     data[boleta_id]["boleta"]["fechaEmision"],
@@ -123,7 +123,15 @@ class Command(BaseCommand):
 
         # Pair order to (hopefully just one) hash boleta_ids
         for venta in raw_data:
-            order_number = venta["recaudaciones"][0]["voucher"]
+            if venta["puntoVenta"]["rutCajero"] is None:
+                logger.info("Boleta_id {}, viene con un order_number None".format(venta['id']))
+                continue
+            order_number = venta["puntoVenta"]["rutCajero"]
+            try:
+                aux = order_number.split('UA')
+                order_number = "UA-{}".format(aux[1])
+            except Exception as e:
+                logger.error("Error get_boleta_emissions in order_number from rutCajero, error: {}".format(str(e)))
             prev = remote_boleta_orders.get(
                 order_number, [])
             prev.append(venta["id"])
@@ -134,12 +142,17 @@ class Command(BaseCommand):
                 duplicates += len(remote_boleta_orders[boleta])
                 orders += 1
         if duplicates > 0:
-            logger.error("There are {} duplicate boletas for {} orders ...".format(
-                duplicates, orders))
+            logger.error("There are {} duplicate boletas for {} orders. boletas: {}".format(
+                duplicates, orders, raw_data))
             # map ids to a dict
             boletas_data = {}
             for item in raw_data:
                 boletas_data[item["id"]] = item
+                try:
+                    aux = boletas_data[item["id"]]["puntoVenta"]["rutCajero"].split('UA')
+                    boletas_data[item["id"]]["puntoVenta"]["rutCajero"] = "UA-{}".format(aux[1])
+                except Exception as e:
+                    logger.error("Error get_boleta_emissions in order_number from rutCajero, error: {}".format(str(e)))
             self.register_duplicates(remote_boleta_orders, boletas_data)
             raise CommandError("Inconsistency detected")
         return remote_boleta_orders
@@ -246,21 +259,23 @@ class Command(BaseCommand):
         self.save = options["save"]
         # Emails require a saved file
         if self.email:
-            self.save = True    
+            self.save = True
 
         # Get boletas registry from API
         auth = authenticate_boleta_electronica()
         headers = {
             "Authorization": "Bearer " + auth["access_token"]
         }
+        # Get boletas state=INGRESADA
         raw_boletas = get_boletas(headers, options["since"])
-        raw_boletas.extend(get_boletas(headers, options["since"], state="INGRESADA"))
+        # Get boletas state=CONTABILIZADA extend to raw_boletas
+        raw_boletas.extend(get_boletas(headers, options["since"], state="CONTABILIZADA"))
 
         # CHECK ZERO
         # Verify that counts are consistent
         if len(raw_boletas) == 0:
             logger.info(
-                "No boletas INGRESADAs recovered from Ventas API. Checking local count ...")
+                "No boletas recovered from Ventas API. Checking local count ...")
             self.verify_local_count_is_zero(options["since"])
 
         # CHECK ONE:

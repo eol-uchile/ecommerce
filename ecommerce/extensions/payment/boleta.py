@@ -196,7 +196,7 @@ def determine_billable_price(basket, product_line, order, payment_processor='web
         billable_conversion_rate = BoletaUSDConversion.objects.first().clp_to_usd
         total = (Decimal(dollars) * Decimal(billable_conversion_rate) * Decimal(product_line.quantity)).quantize(Decimal('1'), rounding=ROUND_HALF_UP)
         total = int(total)
-        
+
         unitPrice = (Decimal(dollars) * Decimal(billable_conversion_rate)).quantize(Decimal('1'), rounding=ROUND_HALF_UP)
         unitPrice = int(unitPrice)
         return unitPrice, total
@@ -231,7 +231,7 @@ def make_boleta_electronica(basket, order, auth, configuration=default_config, p
       configuration - configuration file from a webpay payment processor
     Returns:
       It returns the id of the new boleta
-      
+
       Reference within the VPN
 
       https://ventas-test.uchile.cl/ventas-api-front/api/v1/swagger-ui.html#/ventas-controller/creaVentaUsingPOST
@@ -305,6 +305,7 @@ def make_boleta_electronica(basket, order, auth, configuration=default_config, p
             "saldoAnterior": 0,
         },
         "puntoVenta": {
+            "rutCajero": basket.order_number,
             "cuentaCorriente": True,  # Se requiere para anular la venta
             "identificadorPos": configuration["config_identificador_pos"],
             "sucursal": {  # Opcional
@@ -319,9 +320,11 @@ def make_boleta_electronica(basket, order, auth, configuration=default_config, p
         "recaudaciones": [{
             "monto": order_total,
             "tipoPago": "Tarjeta de Crédito",  # Efectivo | Debito | Tarjeta de Crédito
-            "voucher": basket.order_number,  # numero para gestion interna de transacciones
+            "voucher": basket.authorization_code,  # numero para gestion interna de transacciones
         }],
     }
+
+    # logger.info("Información de boleta para API Ventas: {}".format(data))
 
     # Opcional en nuestro caso (Servicio 3) aplica para comuna, direccion, ciudad
     if billing_info.billing_country_iso2 == "CL":
@@ -396,6 +399,7 @@ def get_boleta_details(id, auth_headers, configuration=default_config):
         BoletaElectronicaException
     """
     config_ventas_url = configuration["config_ventas_url"]
+
     try:
         result = requests.get(
             "{}/ventas/{}".format(config_ventas_url, id),
@@ -408,7 +412,7 @@ def get_boleta_details(id, auth_headers, configuration=default_config):
     return result.json()
 
 
-def get_boletas(auth_headers, since, state="CONTABILIZADA", configuration=default_config):
+def get_boletas(auth_headers, since, state="INGRESADA", configuration=default_config):
     """
     Recovers all boletas since a given date
     Arguments:
@@ -422,10 +426,12 @@ def get_boletas(auth_headers, since, state="CONTABILIZADA", configuration=defaul
         BoletaElectronicaException
     """
     config_ventas_url = configuration["config_ventas_url"]
+    identificador_pos = configuration["config_identificador_pos"]
+
     try:
         result = requests.get(
-            "{}/ventas/?fecha-desde={}&estado={}".format(
-                config_ventas_url, since, state),
+            "{}/ventas/?fecha-desde={}&estado={}&identificador-pos={}".format(
+                config_ventas_url, since, state, identificador_pos),
             headers=auth_headers
         )
         error_response = result

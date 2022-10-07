@@ -9,7 +9,7 @@ edX E-Commerce Service  |Travis|_ |Codecov|_
 This repository contains the edX E-Commerce Service, which relies heavily on `django-oscar <https://django-oscar.readthedocs.org/en/latest/>`_, as well as all frontend and backend code used to manage edX's product catalog and handle orders for those products.
 
 EOL
--------------
+--------------
 Changelog
 
 - changed models on courses/models to add spanish default translations via backend, instead of at frontend runtime.
