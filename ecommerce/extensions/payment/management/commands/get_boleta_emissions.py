@@ -148,6 +148,11 @@ class Command(BaseCommand):
             boletas_data = {}
             for item in raw_data:
                 boletas_data[item["id"]] = item
+                try:
+                    aux = boletas_data[item["id"]]["puntoVenta"]["rutCajero"].split('UA')
+                    boletas_data[item["id"]]["puntoVenta"]["rutCajero"] = "UA-{}".format(aux[1])
+                except Exception as e:
+                    logger.error("Error get_boleta_emissions in order_number from rutCajero, error: {}".format(str(e)))
             self.register_duplicates(remote_boleta_orders, boletas_data)
             raise CommandError("Inconsistency detected")
         return remote_boleta_orders
@@ -261,14 +266,16 @@ class Command(BaseCommand):
         headers = {
             "Authorization": "Bearer " + auth["access_token"]
         }
+        # Get boletas state=INGRESADA
         raw_boletas = get_boletas(headers, options["since"])
-        raw_boletas.extend(get_boletas(headers, options["since"], state="INGRESADA"))
+        # Get boletas state=CONTABILIZADA extend to raw_boletas
+        raw_boletas.extend(get_boletas(headers, options["since"], state="CONTABILIZADA"))
 
         # CHECK ZERO
         # Verify that counts are consistent
         if len(raw_boletas) == 0:
             logger.info(
-                "No boletas INGRESADAs recovered from Ventas API. Checking local count ...")
+                "No boletas recovered from Ventas API. Checking local count ...")
             self.verify_local_count_is_zero(options["since"])
 
         # CHECK ONE:
