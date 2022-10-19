@@ -283,7 +283,7 @@ def make_boleta_electronica(basket, order, auth, configuration=default_config, p
                 "descripcionAdicionalItem": itemDescription,
                 "identificadorProducto": course_product.id,
                 "impuesto": 0.0,
-                "indicadorExencion": 2,  # Servicio no facturable
+                "indicadorExencion": 2,  # Se converso con C.Solis indicando que si el area contable solicita, es necesario cambiar este campo de 2 a 1 (Producto o servicio es exento o no afecto)
                 "nombreItem": itemName,
                 "precioUnitarioItem": unitPrice,
                 "unidadMedidaItem": "",
@@ -483,7 +483,7 @@ def recover_boleta(request, configuration=default_config):
             basket__order__number=order_number)
         if (not request.user.is_superuser) and (boleta.basket.owner.id != user_id):
             logger.error(
-                "User does not own the Basket provided to recover_boleta")
+                "User {} does not own the Basket {} provided to recover_boleta {}".format(user_id, boleta.basket.owner.id, order_number))
             context['msg'] = 'El usuario no es dueño de la orden solicitada.'
             return render(request, "edx/checkout/boleta_error.html", context)
 
