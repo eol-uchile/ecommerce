@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+set -e
+
 tox -e py38-django22-tests \
  ecommerce/extensions/payment/tests/processors/test_webpay.py \
  ecommerce/extensions/payment/tests/processors/test_paypal.py \
