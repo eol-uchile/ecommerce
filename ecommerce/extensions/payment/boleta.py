@@ -65,7 +65,7 @@ def make_paragraphs_200(line, order_number):
     and append a new line with the order_number
     """
     len_order = len(order_number)
-    append_order_number = "^"+order_number
+    append_order_number = "^Número de orden: "+order_number
 
     if len(line) > 200:
         # Max line is 1000 in length
@@ -245,12 +245,32 @@ def make_boleta_electronica(basket, order, auth, configuration=default_config, p
     if billing_info.id_option != UserBillingInfo.RUT:
         rut = "66666666-6"
 
-    # Get product info
+    # Get product(s) info
     product_lines = basket.all_lines()
     if len(product_lines) > 1:
-        raise Exception(
-            "No multiple product implementation for boleta Electronica")
-    course_product = product_lines[0].product
+        logger.warning("Multiple product implementation for boleta Electronica")
+    detalleProductosServicios = []
+    order_total = 0
+
+    for line in product_lines:
+        # obtain item price
+        unitPrice, _order_total = determine_billable_price(basket, line, order, payment_processor)
+        order_total += _order_total
+
+        detalleProductosServicios.append({
+                "cantidadItem": line.quantity,
+                # Uncommented
+                "centroCosto": configuration["config_centro_costos"],
+                "cuentaContable": configuration["config_cuenta_contable"],
+                # Limit lengths
+                "descripcionAdicionalItem": make_paragraphs_200("Curso: {}".format(line.product.title), basket.order_number),
+                "identificadorProducto": line.product.id,
+                "impuesto": 0.0,
+                "indicadorExencion": 2,  # Se converso con C.Solis indicando que si el area contable solicita, es necesario cambiar este campo de 2 a 1 (Producto o servicio es exento o no afecto)
+                "nombreItem": "Certificado: curso de formación en extensión",
+                "precioUnitarioItem": unitPrice,
+                "unidadMedidaItem": "",
+            })
 
     header = {
         "Authorization": "Bearer " + auth["access_token"]
@@ -262,32 +282,11 @@ def make_boleta_electronica(basket, order, auth, configuration=default_config, p
     # VN es Credito
     # VD es Debito
     # Asume credit
-    courseTitle = course_product.title
-
-    itemName = "Certificado: curso de formación en extensión"
-
-    # Limit lengths
-    itemDescription = make_paragraphs_200(
-        "Curso: {}".format(courseTitle), basket.order_number)
-
-    unitPrice, order_total = determine_billable_price(basket, product_lines[0], order, payment_processor)
 
     data = {
         "datosBoleta": {
             "afecta": False,  # No afecto a impuestos
-            "detalleProductosServicios": [{
-                "cantidadItem": product_lines[0].quantity,
-                # Uncommented
-                "centroCosto": configuration["config_centro_costos"],
-                "cuentaContable": configuration["config_cuenta_contable"],
-                "descripcionAdicionalItem": itemDescription,
-                "identificadorProducto": course_product.id,
-                "impuesto": 0.0,
-                "indicadorExencion": 2,  # Se converso con C.Solis indicando que si el area contable solicita, es necesario cambiar este campo de 2 a 1 (Producto o servicio es exento o no afecto)
-                "nombreItem": itemName,
-                "precioUnitarioItem": unitPrice,
-                "unidadMedidaItem": "",
-            }],
+            "detalleProductosServicios": detalleProductosServicios,
             "indicadorServicio": 3,  # Boletas de venta y servicios
             "receptor": {
                 "nombre": billing_info.first_name,
@@ -300,7 +299,7 @@ def make_boleta_electronica(basket, order, auth, configuration=default_config, p
                 "codigoReferencia": basket.order_number,  # Max length 18
                 "codigoVendedor": "INTERNET",
                 # Max length 90
-                "razonReferencia": "Orden de compra: "+str(course_product.id),
+                "razonReferencia": "Orden de compra",
             }, ],
             "saldoAnterior": 0,
         },
@@ -324,7 +323,7 @@ def make_boleta_electronica(basket, order, auth, configuration=default_config, p
         }],
     }
 
-    # logger.info("Información de boleta para API Ventas: {}".format(data))
+    logger.debug("Información de boleta para API Ventas: {}".format(data))
 
     # Opcional en nuestro caso (Servicio 3) aplica para comuna, direccion, ciudad
     if billing_info.billing_country_iso2 == "CL":
