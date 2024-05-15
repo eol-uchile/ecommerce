@@ -11,7 +11,7 @@ from ecommerce.extensions.payment.boleta import authenticate_boleta_electronica,
 from ecommerce.extensions.payment.models import UserBillingInfo, BoletaElectronica, BoletaErrorMessage
 
 from ecommerce.tests.testcases import TestCase
-from ecommerce.extensions.test.factories import create_basket, create_order
+from ecommerce.extensions.test.factories import create_basket, create_order, create_product, create_stockrecord, D
 from ecommerce.extensions.payment.tests.mixins import BoletaMixin
 
 
@@ -29,19 +29,24 @@ class BoletaTests(BoletaMixin, TestCase):
     def setUp(self):
         self.basket = create_basket(price="10.0")
         self.order = create_order(basket=self.basket)
+        self.multi_basket = create_basket(price="10.0")
+        product = create_product()
+        create_stockrecord(product, num_in_stock=2, price_excl_tax=D("10.0"))
+        self.multi_basket.add_product(product)
+        self.multi_order = create_order(basket=self.multi_basket)
 
     def test_make_paragraph_0(self):
         line = self.make_line(0)
-        self.assertEqual("^order", make_paragraphs_200(line, "order"))
+        self.assertEqual("^Número de orden: order", make_paragraphs_200(line, "order"))
 
     def test_make_paragraph_200(self):
         line = self.make_line(200)
-        self.assertEqual("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa^order",
+        self.assertEqual("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa^Número de orden: order",
                          make_paragraphs_200(line, "order"))
 
     def test_make_paragraph_400(self):
         line = self.make_line(400)
-        self.assertEqual("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa^aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa^aa^order",
+        self.assertEqual("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa^aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa^aa^Número de orden: order",
                          make_paragraphs_200(line, "order"))
 
     @responses.activate
@@ -125,6 +130,41 @@ class BoletaTests(BoletaMixin, TestCase):
             boleta_o = BoletaElectronica.objects.get(basket=self.basket)
             billing_info = UserBillingInfo.objects.get(
                 basket=self.basket, boleta=boleta_o)
+            self.assertEqual(0, BoletaErrorMessage.objects.all().count())
+
+    @responses.activate
+    def test_boleta_multi_success(self):
+        self.mock_boleta_auth()
+        self.mock_boleta_creation()
+        self.mock_boleta_details(self.multi_order.total_incl_tax)
+        self.make_billing_info_helper('0', 'CL', self.multi_basket)
+
+        auth = authenticate_boleta_electronica()
+
+        with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
+            self.assertEqual("id", make_boleta_electronica(
+                self.multi_basket, self.multi_order, auth)["id"])
+            # If anything went wrong this would throw an exception
+            boleta_o = BoletaElectronica.objects.get(basket=self.multi_basket)
+            billing_info = UserBillingInfo.objects.get(
+                basket=self.multi_basket, boleta=boleta_o)
+
+    @responses.activate
+    def test_boleta_multi_success_no_details(self):
+        self.mock_boleta_auth()
+        self.mock_boleta_creation()
+        self.mock_boleta_details_404()
+        self.make_billing_info_helper('0', 'CL', self.multi_basket)
+
+        auth = authenticate_boleta_electronica()
+
+        with override_settings(BOLETA_CONFIG=self.BOLETA_SETTINGS):
+            self.assertEqual("id", make_boleta_electronica(
+                self.multi_basket, self.multi_order, auth)["id"])
+            # If anything went wrong this would throw an exception
+            boleta_o = BoletaElectronica.objects.get(basket=self.multi_basket)
+            billing_info = UserBillingInfo.objects.get(
+                basket=self.multi_basket, boleta=boleta_o)
             self.assertEqual(0, BoletaErrorMessage.objects.all().count())
 
     @responses.activate
