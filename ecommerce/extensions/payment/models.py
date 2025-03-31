@@ -298,7 +298,9 @@ class UserBillingInfo(models.Model):
     billing_district = models.CharField(null=True, max_length=50)
     billing_address = models.CharField(null=True, max_length=255)
     id_number = models.CharField(default="66666666-6", max_length=14)
-    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
+    # We can get the user by looking at the owner
+    basket = models.ForeignKey('basket.Basket', verbose_name=_('Basket'),
+                            null=True, blank=True, on_delete=models.SET_NULL)
     first_name = models.CharField(max_length=100)
     last_name_1 = models.CharField(max_length=255)
     last_name_2 = models.CharField(max_length=255,blank=True)

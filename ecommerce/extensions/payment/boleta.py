@@ -80,10 +80,10 @@ def make_boleta_electronica(basket, order_total, auth, configuration=default_con
     """
 
     # Get user info
-    billing_info = UserBillingInfo.models.get(user=basket.owner.id)
+    billing_info = UserBillingInfo.objects.get(basket=basket)
     # Get product info
     product_lines = basket.all_lines()
-    if len(product_lines > 1):
+    if len(product_lines) > 1:
         raise Exception(
             "No multiple product implementation for boleta Electronica")
     course_product = product_lines[0].product
@@ -125,7 +125,7 @@ def make_boleta_electronica(basket, order_total, auth, configuration=default_con
                 "ciudad": billing_info.billing_city,
                 "comuna": billing_info.billing_district,
                 "direccion": billing_info.billing_address,
-                "nombre": user.full_name,  # TODO: Variable *
+                "nombre": billing_info.first_name,  # TODO: Variable *
                 # Rut del Receptor. Si no se informa, por regulación, se agrega 66666666-6. (Largo máximo 10, formato 12345678-K)
                 "rut": billing_info.id_number
             },
@@ -133,7 +133,7 @@ def make_boleta_electronica(basket, order_total, auth, configuration=default_con
                 "codigoCaja": "eceol",
                 "codigoReferencia": basket.order_number,
                 "codigoVendedor": "INTERNET",
-                "razonReferencia": "Orden de compra: "+course_product.id,
+                "razonReferencia": "Orden de compra: "+str(course_product.id),
             }, ],
             "saldoAnterior": 0,
         },
@@ -204,7 +204,6 @@ def recover_boleta(request, configuration=default_config):
         "payment_support_email": request.site.siteconfiguration.payment_support_email
     }
 
-    # TODO: change model to include order_number instead of basket
     try:
         order = Order.objects.get(number=order_number)
         boleta = BoletaElectronica.objects.get(basket=order.basket)

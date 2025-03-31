@@ -32,7 +32,7 @@ OrderTotalCalculator = get_class('checkout.calculators', 'OrderTotalCalculator')
 
 
 class WebpayPaymentNotificationView(EdxOrderPlacementMixin, View):
-    """Process the Kiphu notification of a completed transaction"""
+    """Process the Webpay notification of a completed transaction"""
     @property
     def payment_processor(self):
         return Webpay(self.request.site)

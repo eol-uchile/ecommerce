@@ -104,7 +104,7 @@ class Webpay(BasePaymentProcessor):
                 billing_city=request.data.get("billing_city"),
                 billing_address=request.data.get("billing_address"),
                 id_number=request.data.get("id_number"),
-                user=basket.owner,
+                basket=basket,
                 first_name=request.data.get("first_name"),
                 last_name_1=request.data.get("last_name_1"),
                 last_name_2=request.data.get("last_name_2"))
@@ -160,7 +160,6 @@ class Webpay(BasePaymentProcessor):
                 )
             else:
                 logger.error("Transaction [{}] have different transaction ammount [{}], expected [{}]".format(basket.order_number, response['detailOutput'][0]['amount'], basket.total_incl_tax))
-
         else:
             logger.error("Transaction [{}] for basket [{}] not done or with invalid amount.\n {}".format(basket.order_number, basket.id, response))
             raise WebpayTransactionDeclined()
@@ -168,7 +167,6 @@ class Webpay(BasePaymentProcessor):
         raise GatewayError("Transaction not ready")
 
     def issue_credit(self, order_number, basket, reference_number, amount, currency):
-        return reference_number
         raise NotImplementedError
 
     def get_transaction_data(self, token):
