@@ -15,6 +15,17 @@ edX E-Commerce Service  |CI|_ |Codecov|_
 
 This repository contains the edX E-Commerce Service, which relies heavily on `django-oscar <https://django-oscar.readthedocs.org/en/latest/>`_, as well as all frontend and backend code used to manage edX's product catalog and handle orders for those products.
 
+EOL
+-------------
+Changelog
+
+- added webpay payment processor and views
+- added models on extensions/payment
+- added template, javascript and emails
+- added commands to extensions/payment
+
+For more details check the .github folder for Installing and on developper notes.
+
 Documentation
 -------------
 

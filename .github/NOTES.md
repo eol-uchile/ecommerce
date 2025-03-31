@@ -30,6 +30,27 @@ PAYMENT_PROCESSOR_CONFIG:
 ```
 You can always configure your partner with the short code edx and just add the webpay config file under that dictionary.
 
+## Boleta electronica dataflow
+
+To create a boleta the following happens
+1. A post request is received by the webpay payment view
+    - rut is checked
+    - init webpay
+    - we check that the billing info is not already associated to the basket
+2. We save the UserBillingInfo and register the initial webpay response (asociated to the basket and the transaction_id)
+3. Go to webpay
+4. Webpay sends a get response with a token.
+    - We check the status of the transaction
+    - Verify that we are not having duplicate transactions
+    - Commit transaction to webpay
+    - Verify that no one else commited the transaction
+5. If boleta is enabled
+    - Recover first billing info
+    - Authenticate
+    - Create boleta
+    - Recover boleta details (if it fails the operation continues)
+    - Save BoletaElectronica and associate boleta to UserBillingInfo
+
 ## Reference for configuration
 
 Check this link to configure the variables between the lms and the ecommerce service
