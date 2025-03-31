@@ -118,7 +118,7 @@ class Webpay(BasePaymentProcessor):
             send_mail(
                 'Webpay Service Error',
                 "Lugar: procesador de pago webpay\nDescripción: El servicio de conexión a Webpay falló con código {}.\nEn caso de error 500 revisar los logs del servicio.\nSi el error es 403 las llaves de autenticación se encuentran mal configuradas.".format(result.status_code),
-                None,
+                settings.BOLETA_CONFIG.get("from_email",None),
                 [settings.BOLETA_CONFIG.get("team_email","")],
                 fail_silently=False
             )
@@ -193,7 +193,7 @@ class Webpay(BasePaymentProcessor):
                         send_mail(
                             'Boleta Electronica API Error(s)',
                             "Lugar: procesador de pago webpay.\nDescripción: No se pudo establecer la conexión a la API de Boleta electronica.\nEl nombre no fue resuelto resultando en una request.exceptions.ConnectTimeout.",
-                            None,
+                            settings.BOLETA_CONFIG.get("from_email",None),
                             [settings.BOLETA_CONFIG.get("team_email","")],
                             fail_silently=False
                         )
@@ -206,7 +206,7 @@ class Webpay(BasePaymentProcessor):
                             send_mail(
                                 'Boleta Electronica API Error(s)',
                                 "Lugar: procesador de pago webpay.\nDescripción: Hubo un error al obtener la boleta {}.\n\nCodigo de respuesta {}, mensaje {}".format(basket.order_number,boleta_error_message.code,boleta_error_message.content),
-                                None,
+                                settings.BOLETA_CONFIG.get("from_email",None),
                                 [settings.BOLETA_CONFIG.get("team_email","")],
                                 fail_silently=False
                             )
@@ -220,7 +220,7 @@ class Webpay(BasePaymentProcessor):
                         send_mail(
                             'Boleta Electronica API Error(s)',
                             "Lugar: procesador de pago webpay.\nDescripción: Hubo un error inesperado al obtener una boleta.\n\nError{}".format(traceback.format_exc()),
-                            None,
+                            settings.BOLETA_CONFIG.get("from_email",None),
                             [settings.BOLETA_CONFIG.get("team_email","")],
                             fail_silently=False
                         )
@@ -257,7 +257,7 @@ class Webpay(BasePaymentProcessor):
             send_mail(
                 'Webpay Service Error',
                 "El servicio de conexión a Webpay falló con código {}.\nEn caso de error 500 revisar los logs del servicio.\nSi el error es 403 las llaves de autenticación se encuentran mal configuradas.".format(result.status_code),
-                None,
+                settings.BOLETA_CONFIG.get("from_email",None),
                 [settings.BOLETA_CONFIG.get("team_email","")],
                 fail_silently=False
             )
