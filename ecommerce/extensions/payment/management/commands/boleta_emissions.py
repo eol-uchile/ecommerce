@@ -46,7 +46,7 @@ class Command(BaseCommand):
 
                 if not dry_run:
                     auth = authenticate_boleta_electronica(basket=basket)
-                    boleta_id = make_boleta_electronica(basket, basket.total_incl_tax, auth)
+                    boleta_id = make_boleta_electronica(basket, basket.total_incl_tax, auth, send_mail=True)
                     
                 completed = completed + 1
                 logger.info("Completed Boleta for order {}, user {}, amount CLP {}".format(order.number,basket.owner.username, order.total_incl_tax))
@@ -59,10 +59,17 @@ class Command(BaseCommand):
         if not dry_run:
             # Check for errors and recover messages
             error_messages = BoletaErrorMessage.objects.all()
+            # No orders, no errors
             if error_messages.count() > 0:
+
+                # TODO: Support multisite configuration for each error
+                site = orders[0].site
+
                 message = "Lugar: comando boleta_emissions\nDescripción: Hubieron errores al generar las boletas con el comando boleta_emissions\n\nEn total {} error(es)\n".format(error_messages.count())
                 for m in error_messages:
                     message = message+"Codigo {}, mensaje\n{}\n".format(m.code, m.content)
+                # Append site footer
+                message = message+"Originado en {} con partner {}".format(site.domain,site.siteconfiguration.lms_url_root)
 
                 send_mail(
                     'Boleta Electronica API Error(s)',

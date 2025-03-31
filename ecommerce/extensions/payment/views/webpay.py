@@ -22,6 +22,7 @@ from ecommerce.extensions.basket.utils import basket_add_organization_attribute
 from ecommerce.extensions.checkout.mixins import EdxOrderPlacementMixin
 from ecommerce.extensions.checkout.utils import get_receipt_page_url
 from ecommerce.extensions.payment.processors.webpay import Webpay, WebpayAlreadyProcessed, WebpayTransactionDeclined
+from ecommerce.extensions.payment.boleta import send_boleta_email
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +30,6 @@ Applicator = get_class('offer.applicator', 'Applicator')
 PaymentProcessorResponse = get_model('payment', 'PaymentProcessorResponse')
 NoShippingRequired = get_class('shipping.methods', 'NoShippingRequired')
 OrderTotalCalculator = get_class('checkout.calculators', 'OrderTotalCalculator')
-
 
 class WebpayPaymentNotificationView(EdxOrderPlacementMixin, View):
     """Process the Webpay notification of a completed transaction"""
@@ -76,23 +76,23 @@ class WebpayPaymentNotificationView(EdxOrderPlacementMixin, View):
         """Handle a notification received by Webpay with status update of a transaction"""
         token = request.POST.get("token_ws")
         logger.info("Payment token [%s] update received by Webpay", token)
-
         try:
             payment = self.payment_processor.get_transaction_data(token)
             if not payment:
                 logger.error("Error fetching Webpay details from token [%s]", token)
+                raise Http404("Hubo un error al obtener los detalles desde Webpay.")
         except Exception as e:
             logger.exception("Error receiving payment {} {}".format(request.POST, e))
-            raise Http404()
+            raise Http404("Hubo un error al obtener los detalles desde Webpay.")
 
         try:
             basket = self._get_basket(payment['buyOrder'])
             if not basket:
                 logger.error("Basket not found for payment [%s]", payment['buyOrder'])
-                raise Http404()
+                raise Http404("El carrito solicitado no existe.")
         except Exception as e:  # pylint: disable=broad-except
             logger.exception("Error receiving payment {} {}".format(request.POST, e))
-            raise Http404()
+            raise Http404("El carrito solicitado no existe.")
 
         try:
             with transaction.atomic():
@@ -108,10 +108,11 @@ class WebpayPaymentNotificationView(EdxOrderPlacementMixin, View):
                     # Cancel the basket, as the transaction was declined
                     return redirect(reverse('checkout:cancel-checkout'))
         except HttpResponseBadRequest:
-            raise
+            logger.exception('Payment was already processed [%d] failed.', basket.id)
+            raise Http404("El pago ya registra como procesado en ecommerce.")
         except Exception:
             logger.exception('Attempts to handle payment for basket [%d] failed.', basket.id)
-            raise Http404()
+            raise Http404("Hubo un error al procesar el carrito.")
 
         try:
             # Generate and handle the order
@@ -138,10 +139,13 @@ class WebpayPaymentNotificationView(EdxOrderPlacementMixin, View):
             )
             self.handle_post_order(order)
 
+            # Order is created; then send email
+            send_boleta_email(basket)
+
             return HttpResponse(WEBPAY_REDIRECT.format(url=payment['urlRedirection'], token=token))
         except Exception as e:  # pylint: disable=broad-except
-            logger.exception(self.order_placement_failure_msg, payment_id, basket.id)
-            raise Http404()
+            logger.exception(self.order_placement_failure_msg, payment['buyOrder'], basket.id)
+            raise Http404("Hubo un error al cerrar la orden en ecommerce.")
 
 class WebpaySuccessfulView(View):
     """Redirect the post return to the receipt"""
