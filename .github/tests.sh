@@ -2,7 +2,7 @@
 
 set -e
 
-tox -e py38-django22-tests \
+tox -e py38-django32-tests \
  ecommerce/extensions/payment/tests/processors/test_webpay.py \
  ecommerce/extensions/payment/tests/processors/test_paypal.py \
  ecommerce/extensions/payment/tests/views/test_webpay.py \
