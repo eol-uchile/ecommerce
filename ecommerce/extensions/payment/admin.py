@@ -7,7 +7,7 @@ from oscar.apps.payment.admin import *  # noqa pylint: disable=wildcard-import,u
 from oscar.core.loading import get_model
 from solo.admin import SingletonModelAdmin
 
-from ecommerce.extensions.payment.models import SDNCheckFailure
+from ecommerce.extensions.payment.models import SDNCheckFailure, BoletaElectronica, UserBillingInfo
 
 PaymentProcessorResponse = get_model('payment', 'PaymentProcessorResponse')
 PaypalProcessorConfiguration = get_model('payment', 'PaypalProcessorConfiguration')
@@ -50,5 +50,12 @@ class SDNCheckFailureAdmin(admin.ModelAdmin):
         # Use format_html() to escape user-provided inputs, avoiding an XSS vulnerability.
         return format_html('<br><br><pre>{}</pre>', pretty_response)
 
+@admin.register(BoletaElectronica)
+class BoletaElectronicaAdmin(admin.ModelAdmin):
+    pass
+
+@admin.register(UserBillingInfo)
+class UserBillingAdmin(admin.ModelAdmin):
+    pass
 
 admin.site.register(PaypalProcessorConfiguration, SingletonModelAdmin)

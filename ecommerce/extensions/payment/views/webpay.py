@@ -97,6 +97,7 @@ class WebpayPaymentNotificationView(EdxOrderPlacementMixin, View):
         try:
             with transaction.atomic():
                 try:
+                    # payment processor.handle_processor_response
                     self.handle_payment(payment, basket)
                 except PaymentError:
                     return redirect(self.payment_processor.error_url)

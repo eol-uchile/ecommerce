@@ -5,6 +5,7 @@ from django.conf.urls import include, url
 
 from ecommerce.extensions.payment.views import PaymentFailedView, cybersource, paypal, stripe, webpay
 from ecommerce.extensions.payment.views.sdn import SDNCheckFailureView, SDNCheckView, SDNFailure
+from ecommerce.extensions.payment.boleta import recover_boleta
 
 CYBERSOURCE_APPLE_PAY_URLS = [
     url(r'^authorize/$', cybersource.CybersourceApplePayAuthorizationView.as_view(), name='authorize'),
@@ -48,3 +49,6 @@ urlpatterns = [
 for payment_processor_name, urls_module in settings.EXTRA_PAYMENT_PROCESSOR_URLS.items():
     processor_url = url(r'^{}/'.format(payment_processor_name), include((urls_module, payment_processor_name)))
     urlpatterns.append(processor_url)
+
+if hasattr(settings, 'BOLETA_CONFIG') and settings.BOLETA_CONFIG['enabled']:
+    urlpatterns += [url(r'^boleta/', recover_boleta, name='recover_boleta')]

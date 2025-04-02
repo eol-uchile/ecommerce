@@ -12,10 +12,13 @@ from decimal import Decimal
 import xml.etree.ElementTree as xml
 
 from django.urls import reverse
+from django.conf import settings
 from oscar.apps.payment.exceptions import GatewayError, TransactionDeclined
 from oscar.core.loading import get_class, get_model
 
 from ecommerce.extensions.payment.processors import BasePaymentProcessor, HandledProcessorResponse
+from ecommerce.extensions.payment.models import UserBillingInfo
+from ecommerce.extensions.payment.boleta import authenticate_boleta_electronica, make_boleta_electronica, BoletaElectronicaException
 from ecommerce.extensions.checkout.utils import get_receipt_page_url
 from ecommerce.core.url_utils import get_ecommerce_url
 
@@ -76,7 +79,7 @@ class Webpay(BasePaymentProcessor):
         })
 
         if result.status_code == 403 or result.status_code == 500:
-            raise GatewayError("Webpay module has failed")
+            raise GatewayError("Webpay module has failed, error code {}".format(result.status_code))
 
         result = result.json()
 
@@ -93,6 +96,19 @@ class Webpay(BasePaymentProcessor):
             'payment_page_url': result['url'],
             'token_ws': result['token'],
         }
+
+        if hasattr(settings, 'BOLETA_CONFIG') and settings.BOLETA_CONFIG['enabled']:
+            # After all is ready register the billing info
+            billing_info = UserBillingInfo(
+                billing_district=request.data.get("billing_district"),
+                billing_city=request.data.get("billing_city"),
+                billing_address=request.data.get("billing_address"),
+                id_number=request.data.get("id_number"),
+                user=basket.owner,
+                first_name=request.data.get("first_name"),
+                last_name_1=request.data.get("last_name_1"),
+                last_name_2=request.data.get("last_name_2"))
+            billing_info.save()
 
         return parameters
 
@@ -115,10 +131,30 @@ class Webpay(BasePaymentProcessor):
                 # Check if order is already processed
                 if Order.objects.filter(number=basket.order_number).exists():
                     raise WebpayAlreadyProcessed()
+                
+                if hasattr(settings, 'BOLETA_CONFIG') and settings.BOLETA_CONFIG['enabled']:
+                    try:
+                        # DATA FLOW FROM WEBPAY TO BOLETA ELECTRONICA
+                        boleta_auth = authenticate_boleta_electronica()
+                        boleta_id = make_boleta_electronica(
+                            basket,
+                            basket.total_incl_tax,
+                            boleta_auth
+                        )
+                    except requests.exceptions.ConnectTimeout:
+                        logger.error("BOLETA API couldn't connect. {}".format(e))
+                        raise WebpayTransactionDeclined()
+                    except BoletaElectronicaException as e:
+                        logger.error("BOLETA API HAS FAILED. {}".format(e), exc_info=True)
+                        raise WebpayTransactionDeclined()
+                    except Exception as e:
+                        logger.error("BOLETA API had an unexpected error ?{}".format(e), exc_info=True)
+                        raise WebpayTransactionDeclined()
+
                 return HandledProcessorResponse(
                     transaction_id=basket.order_number,
-                    total=basket.total_incl_tax,
-                    currency='CLP',
+                    total=basket.total_incl_tax, 
+                    currency='USD',
                     card_number='webpay_{}'.format(basket.id),
                     card_type=None
                 )
@@ -143,7 +179,7 @@ class Webpay(BasePaymentProcessor):
         })
         
         if result.status_code == 403 or result.status_code == 500:
-            raise GatewayError("Webpay Module is not ready")
+            raise GatewayError("Webpay Module is not ready, error code {}".format(result.status_code))
 
         self.record_processor_response(result.json(), transaction_id=None, basket=None)
         return result.json()
