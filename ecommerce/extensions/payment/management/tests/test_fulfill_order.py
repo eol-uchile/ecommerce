@@ -5,7 +5,7 @@ from oscar.core.loading import get_model, get_class
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
-from django.utils.six import StringIO
+from six import StringIO
 from django.test import override_settings
 
 from ecommerce.tests.testcases import TestCase
