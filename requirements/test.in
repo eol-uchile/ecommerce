@@ -11,6 +11,7 @@ edx-i18n-tools              # required for quality
 edx-lint
 factory-boy
 freezegun
+httpretty                   # requires for webpay
 isort
 lxml
 mock
