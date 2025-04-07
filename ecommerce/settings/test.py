@@ -108,6 +108,10 @@ PAYMENT_PROCESSOR_CONFIG = {
         },
         'ios-iap': {
             'ios_bundle_id': '<put-value-here>',
+        },
+        'webpay': {
+            'api_url': 'http://transbank:5000',
+            'api_secret': 'my-secret-is-really-important'
         }
     },
     'other': {
@@ -155,6 +159,10 @@ PAYMENT_PROCESSOR_CONFIG = {
         },
         'ios-iap': {
             'ios_bundle_id': 'org.edx.mobile',
+        },
+        'webpay': {
+            'api_url': 'http://transbank:5000',
+            'api_secret': 'my-secret-is-really-important'
         }
     }
 }
