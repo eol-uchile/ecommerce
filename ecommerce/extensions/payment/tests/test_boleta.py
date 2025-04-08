@@ -31,7 +31,7 @@ class BoletaTests(BoletaMixin, TestCase):
         self.order = create_order(basket=self.basket)
         self.multi_basket = create_basket(price="10.0")
         product = create_product()
-        create_stockrecord(product, num_in_stock=2, price_excl_tax=D("10.0"))
+        create_stockrecord(product, num_in_stock=2, price=D("10.0"))
         self.multi_basket.add_product(product)
         self.multi_order = create_order(basket=self.multi_basket)
 

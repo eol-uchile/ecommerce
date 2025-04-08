@@ -196,8 +196,7 @@ class PaypalTests(BoletaMixin, PaypalMixin, PaymentProcessorTestCaseMixin, TestC
     def test_get_courseid_title(self):
         for line in self.basket.all_lines():
             self.assertEqual(
-                #'a/b/c|Seat in Demo Course with test-certificate-type certificate',
-                'a/b/c|Inscripción en Demo Course con certificado test-certificate-type',
+                'a/b/c|Seat in Demo Course with test-certificate-type certificate',
                 self.processor.get_courseid_title(line)
             )
 

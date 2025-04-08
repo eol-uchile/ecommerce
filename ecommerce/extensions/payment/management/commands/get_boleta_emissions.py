@@ -72,12 +72,12 @@ class Command(BaseCommand):
                     exists.append(True)
                 except BoletaElectronica.DoesNotExist:
                     exists.append(False)
-            self.write_remote_boletas(duplicates_boleta_ids, exists, data, "duplicate_boletas.csv")
+            self.write_remote_boletas(duplicates_boleta_ids, exists, data, settings.MEDIA_ROOT+'/duplicate_boletas.csv')
             if self.email:
                 self.send_email_with_attachment(
                     "[Ecommerce] Existen boletas duplicadas",
                     "El comando get_boleta_emissions reportó boletas duplicadas en la API de Ventas UChile. Se adjuntan detalles.",
-                    "/openedx/ecommerce/duplicate_boletas.csv"
+                    settings.MEDIA_ROOT+'/duplicate_boletas.csv'
                 )
 
     def verify_local_count_is_zero(self, since):
@@ -104,12 +104,12 @@ class Command(BaseCommand):
                         "basket__order__total_incl_tax",
                         "basket__order__date__placed",
                         "voucher_id")
-                self.write_local_boletas(local, "local_boletas.csv")
+                self.write_local_boletas(local, settings.MEDIA_ROOT+'/local_boletas.csv')
                 if self.email:
                     self.send_email_with_attachment(
                         "[Ecommerce] Inconsistencia con API",
                         "Existen boletas locales pero ninguna boleta en la API. Puede que hayan sido borradas.",
-                        "/openedx/ecommerce/local_boletas.csv")
+                        settings.MEDIA_ROOT+'/local_boletas.csv')
             raise CommandError("Inconsistency detected")
 
     def look_for_duplicates(self, raw_data):
@@ -180,12 +180,12 @@ class Command(BaseCommand):
                     boletas_data[item["id"]] = item
                 self.write_remote_boletas(not_recorded,
                     [False for b in not_recorded],
-                    boletas_data, "missing_boletas.csv")
+                    boletas_data, settings.MEDIA_ROOT+'/missing_boletas.csv')
                 if self.email:
                     self.send_email_with_attachment(
                         "[Ecommerce] Inconsistencia de boletas",
                         "El comando get_boleta_emissions reportó boletas que existen en la API de Ventas UChile y no localmente. Se adjuntan detalles.",
-                        "/openedx/ecommerce/missing_boletas.csv"
+                        settings.MEDIA_ROOT+'/missing_boletas.csv'
                     )
 
             raise CommandError("Inconsistency detected")
@@ -223,12 +223,13 @@ class Command(BaseCommand):
                             "basket__order__total_incl_tax",
                             "basket__order__date_placed",
                             "voucher_id")
-                self.write_local_boletas(local_boletas, "only_local_boletas.csv")
+                self.write_local_boletas(local_boletas, settings.MEDIA_ROOT+'/only_local_boletas.csv')
                 if self.email:
                     self.send_email_with_attachment(
                         "[Ecommerce] Inconsistencia de boletas",
                         "Existe una diferencia al contar boletas remotas y locales. En particular las boletas {} existen solo localmente. Detalle adjunto.".format(local_diff),
-                        "/openedx/ecommerce/only_local_boletas.csv")
+                        settings.MEDIA_ROOT+'/only_local_boletas.csv'
+                    )
             raise CommandError("Inconsistency detected")
 
     def add_arguments(self, parser):
