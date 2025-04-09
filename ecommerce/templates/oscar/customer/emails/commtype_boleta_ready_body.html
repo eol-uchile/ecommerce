@@ -1,0 +1,46 @@
+{% extends 'oscar/customer/email_base.html' %}
+{% load i18n %}
+{% block body %}
+<!-- Message Body -->
+<tr align="left" class="cn-img-wrapper">
+    <td colspan="2" align="left" class="cn-img-wrapper cn-full-width" style="font-size: 20px; vertical-align: middle; padding-left: 30px; color: #127eb1;">
+        <a href="{{site_lms}}"></a>
+        <img alt="{{ platform_name }} logo" src="{{theme_logo}}" width="300" border="0" hspace="0" vspace="0"
+            class="platform-img">
+        </a>
+    </td>
+</tr>
+
+<tr>
+    <td class="container-padding" bgcolor="#ffffff" style="background-color: #ffffff; padding-left: 30px; padding-right: 30px; font-size: 13px; line-height: 20px; font-family: Open Sans, sans-serif; color: #333; border-radius: 5px;" align="left">
+        <br>
+        <!--/message HTML content -->
+        <p>{% filter force_escape %}{% blocktrans %}Hola {{full_name}},{% endblocktrans %}{% endfilter %}</p>
+        <br>
+        <p>{% filter force_escape %}{% blocktrans with course_title=course_title %}Su boleta para "{{course_title}}" ya está disponible.{% endblocktrans %}{% endfilter %}</p>
+        <p>{% filter force_escape %}{% blocktrans with platform_name=site_dashboard %}Si no ha completado su verificación (de ser requerida) puede hacerlo en {{platform_name}}. {% endblocktrans %}{% endfilter %} </p>
+        <a href="{{ receipt_page_url }}">
+            {% trans "Ver boleta e información de pago" as tmsg %}{{ tmsg | force_escape }}
+        </a>
+        <br>
+        <p>Gracias, ¡Esperamos que disfrute del curso!</p>
+        <p>{% filter force_escape %}{% blocktrans %}Equipo de {{platform_name}} {% endblocktrans %}{% endfilter %}</p>
+        <!--/message HTML content -->
+        <br><br>
+    </td>
+</tr>
+
+<tr>
+    <td class="footer-padding" style="padding-left: 30px; padding-right: 30px; font-size: 13px; line-height: 20px; font-family: Open Sans, sans-serif; color: #002D40; background-color: #f3f3f3;" align="left">
+        <!--footer content -->
+        <br>
+        <p>{% filter force_escape %}{% blocktrans with course_title=course_title platform_name=platform_name %}Está recibiendo este correo porque compró el producto "{{course_title}}" de {{platform_name}}.{% endblocktrans %}{% endfilter %}</p>
+        <br>
+        <!--/ end footer content -->
+    </td>
+</tr>
+<!--/100% wrapper-->
+<br>
+<br>
+{% endblock body %}
+

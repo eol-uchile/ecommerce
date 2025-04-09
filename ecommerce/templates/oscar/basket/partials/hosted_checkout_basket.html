@@ -133,6 +133,7 @@
 
     <div class="row">
         <div class="col-sm-12">
+            {% include 'oscar/basket/partials/boleta_billing_form.html' %}
             {# Switch Basket view in between single and bulk purchase items #}
             {% if partner_sku %}
                 <div class="pull-left basket-switch-link">

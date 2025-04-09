@@ -1,0 +1,34 @@
+{% load i18n %}
+{% load django_markup %}
+
+<div class="col-md-9">
+  <p class="header">{% trans "Verifique su identidad" as tmsg %}{{ tmsg | force_escape }}</p>
+  <p class="message">
+    {% blocktrans trimmed asvar tmsg %}
+      Para obtener un certificado verificado, debe verificar su identidad utilizando una {strong_start}cámara web{strong_end} y una
+       {strong_start}fotografía de su documento de identidad{strong_end} antes del límite de verificación.
+    {% endblocktrans %}
+    {% interpolate_html tmsg strong_start="<strong>"|safe strong_end="</strong>"|safe %}
+  </p>
+</div>
+
+<div id="verify_choices" class="right col-md-3">
+  <div id="verify_now">
+    <a id="verify_now_button"
+       class="next action-primary"
+       data-track-category="verification"
+       data-track-event="edx.bi.user.verification.immediate"
+       data-track-type="click"
+       href="{{ verification_url }}">
+       {% trans "Verificar ahora" as tmsg %}{{ tmsg | force_escape }}
+    </a>
+  </div>
+  <a id="verify_later_button"
+    class="dashboard-link"
+    data-track-category="verification"
+    data-track-event="edx.bi.user.verification.immediate"
+    data-track-type="click"
+    href="{{ order_dashboard_url }}">
+    {% trans "Ir a Inicio y verificar después" as tmsg %}{{ tmsg | force_escape }}
+  </a>
+</div>

@@ -1,0 +1,30 @@
+{% extends "edx/base.html" %} {% block content %}
+
+<div id="error-container">
+  <div
+    class="error-message container depth depth-2 message-error-content"
+    style="margin-top: 1.2rem"
+  >
+    <h2 class="title" style="font-size: 4rem">
+      <span class="sr">Error 402</span>OOPS!<br /><span
+        style="font-size: 1.5rem; font-weight: 700"
+        >402 - Nuestros servidores sufrieron un error</span
+      >
+    </h2>
+    <p>
+      <span class="sr"
+        >El procesador de pago ha sufrido un error, por favor contactate con soporte {{ support_email }} si la operación no fue completada.</span
+      >
+      El procesador de pago ha sufrido un error, por favor contactate con soporte {{ support_email }} si la operación no fue completada.
+    </p>
+    <div class="copy">
+      <p>
+        Para revisar si la operación fue exitosa dirígite a <i>Cuenta > Historial de órdenes</i>
+      </p>
+      <br />
+    </div>
+    <div class="msg">
+      <p>{{ exception }}</p>
+    </div>
+</div>
+{% endblock %}

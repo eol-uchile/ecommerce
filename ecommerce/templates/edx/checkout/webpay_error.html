@@ -1,0 +1,30 @@
+{% extends "edx/base.html" %} {% block content %}
+
+<div id="error-container">
+  <div
+    class="error-message container depth depth-2 message-error-content"
+    style="margin-top: 1.2rem"
+  >
+    <h2 class="title" style="font-size: 4rem">
+      <span class="sr">Error 402</span>Operación Rechazada<br /><span
+        style="font-size: 1.5rem; font-weight: 700"
+        >402 - Webpay rechazó la operación</span
+      >
+    </h2>
+    <p>
+      <span class="sr"
+        >Webpay ha rechazado el pago y la transacción no ha sido completada. Guarde su número de orden {{ order_number }}.</span
+      >
+      Webpay ha rechazado el pago y la transacción no ha sido completada. Guarde su número de orden {{ order_number }}.
+    </p>
+    <div class="copy">
+      <p>
+        Para revisar tus operaciones dirígite a <i>Cuenta > Historial de órdenes</i>
+      </p>
+      <br />
+    </div>
+    <div class="msg">
+      <p>{{ msg }}</p>
+    </div>
+</div>
+{% endblock %}

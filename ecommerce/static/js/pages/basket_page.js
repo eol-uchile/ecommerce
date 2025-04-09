@@ -6,7 +6,8 @@ define([
     'utils/utils',
     'utils/credit_card',
     'utils/key_codes',
-    'js-cookie'
+    'js-cookie',
+    'utils/rut_validator'
 ],
     function($,
               _,
@@ -14,7 +15,8 @@ define([
               Utils,
               CreditCardUtils,
               KeyCodes,
-              Cookies) {
+              Cookies,
+              Rut) {
         'use strict';
 
         var BasketPage = {
@@ -335,6 +337,8 @@ define([
                 var $paymentButtons = $('.payment-buttons'),
                     basketId = $paymentButtons.data('basket-id');
 
+                var $form = $('#billing-info');
+
                 Utils.toogleMobileMenuClickEvent();
 
                 $(document).keyup(function(e) {
@@ -508,6 +512,26 @@ define([
                     BasketPage.cardHolderInfoValidation(e);
                 });
 
+                $('#bId').on('input', function (e) {
+                  Rut.checkRut('bId', true);
+                });
+
+                $('#bIdType').on('change', function (e) {
+                  var value = e.target.value;
+                  var $alternative = $('#bIdAlternative-wrapper');
+                  var $alternativeInput = $('#bIdAlternative');
+                  var $idNumber = $('#bId');
+                  if (value !== "2") {
+                    $alternative.addClass('hidden');
+                    $alternativeInput.removeAttr('required');
+                    $idNumber.attr('placeholder', "11111111-1 o Pasaporte");
+                  } else {
+                    $alternative.removeClass('hidden');
+                    $alternativeInput.attr('required', true);
+                    $idNumber.attr('placeholder', "Número de documento");
+                  }
+                });
+
                 // NOTE: We only include buttons that have a data-processor-name attribute because we don't want to
                 // go through the standard checkout process for some payment methods (e.g. Apple Pay).
                 $paymentButtons.find('.payment-button[data-processor-name]').click(function(e) {
@@ -519,7 +543,13 @@ define([
                         data = {
                             basket_id: basketId,
                             payment_processor: paymentProcessor
-                        };
+                        },
+                        // Get billing form
+                        billing_info = $('#billing-info').serializeArray();
+                    // Adds billing data
+                    Object.keys(billing_info).map(function (k) {
+                      data[billing_info[k].name] = billing_info[k].value;
+                    });
 
                     if (discountJwt.length === 1) {
                         data.discount_jwt = discountJwt.val();

@@ -1,0 +1,64 @@
+{% extends 'edx/base.html' %}
+{% load core_extras %}
+{% load currency_filters %}
+{% load i18n %}
+{% load django_markup %}
+{% load l10n %}
+{% load offer_tags %}
+{% load static %}
+{% load enterprise %}
+
+{% block title %}
+  {% filter force_escape %}
+  {% blocktrans trimmed with order_number=order.number %}
+    Boleta para {{ order_number }}
+  {% endblocktrans %}
+  {% endfilter %}
+{% endblock title %}
+
+{% block navbar %}
+  {% include 'edx/partials/_student_navbar.html' %}
+{% endblock navbar %}
+
+{% block content %}
+  <div id="receipt-container"
+       class="receipt container content-container">
+      <h2 class="thank-you">{% trans "Hubo un error al obtener su boleta" as tmsg %}{{ tmsg | force_escape }}</h2>
+
+      <div class="list-info">
+        <div class="info-item payment-info row">
+          <div class="copy col-md-12">
+            <div class="confirm-message">
+              {{msg}} Si esto persiste por favor contáctanos por correo a {{payment_support_email}}.
+            </div>
+          </div>
+
+          <div class="order-headers order-summary col-md-4">
+            <dl>
+              <!-- <dt>{% trans "Order Number:" as tmsg %}{{ tmsg | force_escape }}</dt>
+              <dd>{{ order.number }}</dd>
+              {% if payment_method %}
+              <dt>{% trans "Payment Method:" as tmsg %}{{ tmsg | force_escape }}</dt>
+              <dd>{{ payment_method }}</dd>
+              {% endif %}
+              <dt>{% trans "Order Date:" as tmsg %}{{ tmsg | force_escape }}</dt>
+              <dd>{{ order.date_placed|date:"d E Y" }}</dd> -->
+            </dl>
+          </div>
+        </div>
+
+    <div id="cta-nav-links" class="row">
+      <div class="col-sm-6 text-right">
+        {% if not show_verification_banner %}
+        <a class="dashboard-link nav-link" href="{{ order_dashboard_url }}">
+          {% trans "Go to dashboard" as tmsg %}{{ tmsg | force_escape }}
+        </a>
+        {% endif %}
+        <a class="find-more-courses-link nav-link" href="{{ explore_courses_url }}">
+          {% trans "Find more courses" as tmsg %}{{ tmsg | force_escape }}
+        </a>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock content %}
