@@ -337,8 +337,6 @@ define([
                 var $paymentButtons = $('.payment-buttons'),
                     basketId = $paymentButtons.data('basket-id');
 
-                var $form = $('#billing-info');
-
                 Utils.toogleMobileMenuClickEvent();
 
                 $(document).keyup(function(e) {
@@ -512,7 +510,7 @@ define([
                     BasketPage.cardHolderInfoValidation(e);
                 });
 
-                $('#bId').on('input', function (e) {
+                $('#bId').on('change', function (e) {
                   Rut.checkRut('bId', true);
                 });
 
@@ -545,10 +543,17 @@ define([
                             payment_processor: paymentProcessor
                         },
                         // Get billing form
-                        billing_info = $('#billing-info').serializeArray();
+                        form = $('#billing-info');
+                    // Checks form
+                    Rut.checkRut('bId', true);
+                    if (!form.get(0).checkValidity()){
+                      form.get(0).reportValidity();
+                      return;
+                    }
                     // Adds billing data
-                    Object.keys(billing_info).map(function (k) {
-                      data[billing_info[k].name] = billing_info[k].value;
+                    var billing_data = form.serializeArray();
+                    Object.keys(billing_data).map(function (k) {
+                      data[billing_data[k].name] = billing_data[k].value;
                     });
 
                     if (discountJwt.length === 1) {
