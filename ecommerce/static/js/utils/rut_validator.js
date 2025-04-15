@@ -1,4 +1,4 @@
-define(["jquery"], function ($) {
+define(['jquery'], function ($) {
   /**
    * Check rut using an input html element with default vanilla JS
    * Reference https://gist.github.com/rotvulpix/69a24cc199a4253d058c
@@ -6,38 +6,37 @@ define(["jquery"], function ($) {
   return {
     checkRut: function (rut_input_id, checkType = false) {
       var rut = document.getElementById(rut_input_id);
+      if (typeof rut === 'undefined') return;
 
       // Preventive check
       if (checkType) {
-        var docType = $("#bIdType");
-        if (docType.val() !== "0") {
+        var docType = $('#'+rut_input_id+'Type');
+        if (docType.val() !== '0') {
           // all is good in the world
-          rut.setCustomValidity("");
-          rut.reportValidity();
-          return;
+          rut.setCustomValidity('');
+          return rut.reportValidity();
         }
       }
 
       // Despejar Puntos
-      var valor = rut.value.replace(".", "");
+      var valor = rut.value.replace('.', '');
       // Despejar Guión
-      valor = valor.replace("-", "");
+      valor = valor.replace('-', '');
 
       // Aislar Cuerpo y Dígito Verificador
       cuerpo = valor.slice(0, -1);
       dv = valor.slice(-1).toUpperCase();
 
       // Formatear RUN
-      rut.value = cuerpo + "-" + dv;
+      rut.value = cuerpo + '-' + dv;
 
       // Calcular Dígito Verificador
       suma = 0;
       multiplo = 2;
 
       if (cuerpo.length < 1) {
-        rut.setCustomValidity("RUT Incompleto");
-        rut.reportValidity();
-        return false;
+        rut.setCustomValidity('RUT Incompleto');
+        return rut.reportValidity();
       }
 
       // Para cada dígito del Cuerpo
@@ -60,19 +59,18 @@ define(["jquery"], function ($) {
       dvEsperado = 11 - (suma % 11);
 
       // Casos Especiales (0 y K)
-      dv = dv == "K" ? 10 : dv;
+      dv = dv == 'K' ? 10 : dv;
       dv = dv == 0 ? 11 : dv;
 
       // Validar que el Cuerpo coincide con su Dígito Verificador
       if (dvEsperado != dv || cuerpo.length < 7 || cuerpo.length > 8) {
-        rut.setCustomValidity("RUT Inválido");
-        rut.reportValidity();
-        return false;
+        rut.setCustomValidity('RUT Inválido');
+        return rut.reportValidity();
       }
 
       // Si todo sale bien, eliminar errores (decretar que es válido)
-      rut.setCustomValidity("");
-      rut.reportValidity();
+      rut.setCustomValidity('');
+      return rut.reportValidity();
     },
   };
 });
