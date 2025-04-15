@@ -120,6 +120,7 @@ def authenticate_boleta_electronica(configuration=default_config, basket=None):
             error_text = json.dumps(error_response.json(), indent=1)
         except Exception:
             pass
+        logger.debug(f"ERROR: {error_text}")
         order_number = "unset"
         if basket is not None:
             order_number = basket.order_number
@@ -173,6 +174,7 @@ def raise_boleta_error(response, e, create_error=False, order=None):
         error_text = json.dumps(response.json(), indent=1)
     except Exception:
         pass
+    logger.debug(f"ERROR: {error_text}")
     if create_error:
         boleta_error_message = BoletaErrorMessage(
             content=error_text[:255],
