@@ -2,6 +2,7 @@
 
 locales:
     - en  # English - Source Language
+    - es_419  # Spanish Latinoamerica - Source Language
 
 # The locales used for fake-accented English, for testing.
 dummy_locales:
