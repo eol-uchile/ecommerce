@@ -61,7 +61,7 @@ class BoletaSinFoliosException(Exception):
 
 def make_paragraphs_200(line, order_number):
     """
-    Create paragraphs of 200 characters (including \ n)
+    Create paragraphs of 200 characters (including \n)
     and append a new line with the order_number
     """
     len_order = len(order_number)
@@ -306,7 +306,6 @@ def make_boleta_electronica(basket, order, auth, configuration=default_config, p
             "saldoAnterior": 0,
         },
         "puntoVenta": {
-            "rutCajero": basket.order_number,
             "cuentaCorriente": True,  # Se requiere para anular la venta
             "identificadorPos": configuration["config_identificador_pos"],
             "sucursal": {  # Opcional

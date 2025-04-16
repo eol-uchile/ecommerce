@@ -31,7 +31,7 @@ class TestBoletaEmissionsCommand(BoletaMixin, TestCase):
                     },
                     "id": "{}-{}".format(i, j),
                     "referencia": [{"codigoReferencia": order.number}],
-                    "puntoVenta": {"rutCajero": basket.order_number},
+                    "detallesProductos": [{"descripcion": f"Descripción del curso {j}^Número de orden: {order.number}"}],
                     "recaudaciones": [{"monto": int(order.total_incl_tax), "voucher": basket.authorization_code}]
                 })
                 if j == 0:

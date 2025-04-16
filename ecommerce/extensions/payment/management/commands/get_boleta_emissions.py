@@ -1,3 +1,4 @@
+import re
 import logging
 
 from django.conf import settings
@@ -40,7 +41,7 @@ class Command(BaseCommand):
             c = 0
             for boleta_id in boletas:
                 f.write("{},{},{},{},{},{}\n".format(
-                    data[boleta_id]["puntoVenta"]["rutCajero"],
+                    re.search(r'\^Número de orden: (?P<order_number>\w+\-\d+)$', data[boleta_id]["detallesProductos"][0]["descripcion"]).group('order_number'),
                     boleta_id,
                     data[boleta_id]["boleta"]["folio"],
                     data[boleta_id]["boleta"]["fechaEmision"],
@@ -48,21 +49,21 @@ class Command(BaseCommand):
                     exists[c]))
                 c += 1
 
-    def register_duplicates(self, order_numbers, data):
+    def register_duplicates(self, basket_ids, data):
         """
         Arguments
-            order_numbers dictionary with order_number as key
+            basket_ids: dictionary with basket_id as key
                 and a list of boleta_id hashes
-            data dictionary with raw data for each
+            data: dictionary with raw data for each
                 boleta by id
         """
         duplicates_boleta_ids = []
-        for order_number in order_numbers:
-            count = len(order_numbers[order_number])
+        for basket_id in basket_ids:
+            count = len(basket_ids[basket_id])
             if count > 1:
                 logger.info("order {}, duplicates_boleta_ids {}".format(
-                    order_number, count))
-                duplicates_boleta_ids.extend(order_numbers[order_number])
+                    basket_id, count))
+                duplicates_boleta_ids.extend(basket_ids[basket_id])
         if len(duplicates_boleta_ids) > 0 and self.save:
             exists = []
             # Check if the order is locally saved
@@ -114,8 +115,8 @@ class Command(BaseCommand):
 
     def look_for_duplicates(self, raw_data):
         """
-        Group boletas by order_number and check
-        if we have 1 order_number to 1 boleta_id
+        Group boletas by basket_id and check
+        if we have 1 basket_id to 1 boleta_id
         """
         duplicates = 0
         orders = 0
@@ -123,23 +124,23 @@ class Command(BaseCommand):
 
         # Pair order to (hopefully just one) hash boleta_ids
         for venta in raw_data:
-            if venta["puntoVenta"]["rutCajero"] is None:
-                logger.info("Boleta_id {}, viene con un order_number None".format(venta['id']))
+            if venta["detallesProductos"][0]["descripcion"] is None:
+                logger.info("Boleta_id {}, viene sin `descripcion` en `detallesProductos`".format(venta['id']))
                 continue
-            order_number = venta["puntoVenta"]["rutCajero"]
+            order_number = None
             try:
-                aux = order_number.split('UA')
-                order_number = "UA-{}".format(aux[1])
+                logger.debug(f'detallesProductos/descripcion="{venta["detallesProductos"][0]["descripcion"]}"')
+                order_number = re.search(r'\^Número de orden: \w+\-(?P<order_number>\d+)$', venta["detallesProductos"][0]["descripcion"]).group('order_number')
             except Exception as e:
-                logger.error("Error get_boleta_emissions in order_number from rutCajero, error: {}".format(str(e)))
+                logger.exception("Error get_boleta_emissions in basket_id from detallesProductos/descripcion, error: {}".format(str(e)))
             prev = remote_boleta_orders.get(
                 order_number, [])
             prev.append(venta["id"])
             remote_boleta_orders[order_number] = prev
         # Count
-        for boleta in remote_boleta_orders:
-            if len(remote_boleta_orders[boleta]) > 1:
-                duplicates += len(remote_boleta_orders[boleta])
+        for order_number in remote_boleta_orders:
+            if len(remote_boleta_orders[order_number]) > 1:
+                duplicates += len(remote_boleta_orders[order_number])
                 orders += 1
         if duplicates > 0:
             logger.error("There are {} duplicate boletas for {} orders. boletas: {}".format(
@@ -148,11 +149,6 @@ class Command(BaseCommand):
             boletas_data = {}
             for item in raw_data:
                 boletas_data[item["id"]] = item
-                try:
-                    aux = boletas_data[item["id"]]["puntoVenta"]["rutCajero"].split('UA')
-                    boletas_data[item["id"]]["puntoVenta"]["rutCajero"] = "UA-{}".format(aux[1])
-                except Exception as e:
-                    logger.error("Error get_boleta_emissions in order_number from rutCajero, error: {}".format(str(e)))
             self.register_duplicates(remote_boleta_orders, boletas_data)
             raise CommandError("Inconsistency detected")
         return remote_boleta_orders
