@@ -1,6 +1,3 @@
-[submodule "ecommerce/themes/uabierta"]
-	path = ecommerce/themes/uabierta
-	url = https://github.com/eol-uchile/uabierta-ecommerce-theme
 [submodule "ecommerce/themes/openuchile"]
 	path = ecommerce/themes/openuchile
 	url = https://github.com/open-uchile/open-uchile-ecommerce-theme
